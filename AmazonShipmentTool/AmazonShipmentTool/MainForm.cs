@@ -14,7 +14,6 @@ public partial class MainForm : Form
     private List<ShipmentRow>? _excelRows;
     private List<ShipmentRow>? _mergedRows;
     private ValidationResult? _validationResult;
-    private PdfGenerator? _pdfGenerator;
 
     public MainForm()
     {
@@ -216,7 +215,14 @@ public partial class MainForm : Form
 
     private async void BtnExport_Click(object? sender, EventArgs e)
     {
-        if (_mergedRows == null || _appointmentInfo == null) return;
+        if (_mergedRows == null || _appointmentInfo == null || _pdfPath == null) return;
+
+        var newRows = _mergedRows.Where(r => r.IsAddedFromExcel).ToList();
+        if (newRows.Count == 0)
+        {
+            MessageBox.Show("No new rows to append.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
 
         using var dialog = new SaveFileDialog
         {
@@ -228,22 +234,20 @@ public partial class MainForm : Form
         if (dialog.ShowDialog() != DialogResult.OK) return;
 
         btnExport.Enabled = false;
-        lblStatus.Text = "Status: Generating PDF...";
+        lblStatus.Text = "Status: Appending rows to PDF...";
         lblStatus.ForeColor = Color.Blue;
         Application.DoEvents();
 
         try
         {
-            _pdfGenerator ??= new PdfGenerator();
-            await _pdfGenerator.InitializeAsync();
-
-            await _pdfGenerator.GeneratePdfAsync(_appointmentInfo, _mergedRows, dialog.FileName);
+            using var appender = new PdfAppender();
+            await appender.AppendRowsAsync(_pdfPath, newRows, dialog.FileName);
 
             lblStatus.Text = $"Status: PDF exported to {Path.GetFileName(dialog.FileName)}";
             lblStatus.ForeColor = Color.Green;
 
             var result = MessageBox.Show(
-                $"PDF exported successfully!\n\n{dialog.FileName}\n\nOpen the file?",
+                $"PDF exported successfully!\n\n{_originalRows?.Count ?? 0} original rows + {newRows.Count} new rows appended.\n\nOpen the file?",
                 "Export Complete",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Information);
@@ -280,7 +284,6 @@ public partial class MainForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        _pdfGenerator?.Dispose();
         base.OnFormClosed(e);
     }
 }
