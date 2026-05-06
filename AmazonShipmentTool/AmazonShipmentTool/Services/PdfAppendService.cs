@@ -38,32 +38,35 @@ public sealed class PdfAppendService
         var normalFont = new XFont("Arial", 6.0, XFontStyleEx.Regular);
         var indexFont = new XFont("Arial", 7.4, XFontStyleEx.Regular);
         var textBrush = new XSolidBrush(XColor.FromArgb(32, 55, 59));
-        var gridPen = new XPen(XColor.FromArgb(221, 221, 221), 0.45);
-        var borderPen = new XPen(XColor.FromArgb(221, 221, 221), 0.45);
+        var rowSeparatorPen = new XPen(XColor.FromArgb(221, 221, 221), 0.45);
+        var outerBorderPen = new XPen(XColor.FromArgb(136, 140, 140), 0.47);
 
         XGraphics gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
-        var segmentStartY = currentY;
+        var isFirstAppendPage = true;
         try
         {
+            RemoveEditAnnotations(page);
+            CoverOriginalEditAndOuterBottom(gfx);
+
             foreach (var row in numberedRows)
             {
                 var rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
                 if (currentY + rowHeight > layout.BottomMargin)
                 {
-                    DrawAppendSegmentBorder(gfx, layout, segmentStartY, currentY, borderPen);
+                    DrawOuterContainerExtension(gfx, currentY, outerBorderPen, isFirstAppendPage);
                     gfx.Dispose();
                     page = AddContinuationPage(document, layout);
                     gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
                     currentY = 24.0;
-                    segmentStartY = currentY;
+                    isFirstAppendPage = false;
                     rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
                 }
 
-                DrawDataRow(gfx, layout, row, currentY, rowHeight, normalFont, indexFont, textBrush, gridPen);
+                DrawDataRow(gfx, layout, row, currentY, rowHeight, normalFont, indexFont, textBrush, rowSeparatorPen);
                 currentY += rowHeight;
             }
 
-            DrawAppendSegmentBorder(gfx, layout, segmentStartY, currentY, borderPen);
+            DrawOuterContainerExtension(gfx, currentY, outerBorderPen, isFirstAppendPage);
         }
         finally
         {
@@ -82,17 +85,42 @@ public sealed class PdfAppendService
         return page;
     }
 
-    private static void DrawAppendSegmentBorder(XGraphics gfx, PdfTableLayout layout, double startY, double endY, XPen borderPen)
+    private const double OuterLeft = 10.23;
+    private const double OuterRight = 585.12;
+    private const double OuterTop = 14.25;
+    private const double OriginalOuterBottom = 722.62;
+
+    private static void RemoveEditAnnotations(PdfPage page)
     {
-        if (endY <= startY) return;
+        if (!page.HasAnnotations) return;
 
-        var boundaries = GetColumnBoundaries(layout);
-        foreach (var x in boundaries)
+        for (var i = page.Annotations.Count - 1; i >= 0; i--)
         {
-            gfx.DrawLine(borderPen, x, startY, x, endY);
+            var annotation = page.Annotations[i];
+            var rect = annotation.Rectangle;
+            if (rect.X1 >= 550 || rect.X2 >= 550)
+                page.Annotations.Remove(annotation);
         }
+    }
 
-        gfx.DrawLine(borderPen, layout.TableLeft, endY, layout.TableRight, endY);
+    private static void CoverOriginalEditAndOuterBottom(XGraphics gfx)
+    {
+        var whiteBrush = new XSolidBrush(XColors.White);
+
+        // The source Amazon PDF places the card bottom border and the yellow Edit link
+        // immediately below the last original row.  Cover them before drawing appended
+        // rows, otherwise the old card border cuts through the new table data.
+        gfx.DrawRectangle(whiteBrush, OuterLeft - 2.0, OriginalOuterBottom - 1.2, OuterRight - OuterLeft + 4.0, 24.0);
+    }
+
+    private static void DrawOuterContainerExtension(XGraphics gfx, double tableEndY, XPen outerBorderPen, bool isFirstAppendPage)
+    {
+        var startY = isFirstAppendPage ? OriginalOuterBottom - 0.2 : OuterTop;
+        var endY = Math.Max(startY, tableEndY + 0.4);
+
+        gfx.DrawLine(outerBorderPen, OuterLeft, startY, OuterLeft, endY);
+        gfx.DrawLine(outerBorderPen, OuterRight, startY, OuterRight, endY);
+        gfx.DrawLine(outerBorderPen, OuterLeft, endY, OuterRight, endY);
     }
 
     private static double MeasureRowHeight(XGraphics gfx, PdfTableLayout layout, ShipmentRow row, XFont font)
@@ -121,11 +149,11 @@ public sealed class PdfAppendService
         XFont normalFont,
         XFont indexFont,
         XBrush brush,
-        XPen gridPen)
+        XPen rowSeparatorPen)
     {
         var values = RowValues(row);
 
-        DrawRowGrid(gfx, layout, y, rowHeight, gridPen);
+        DrawRowSeparator(gfx, layout, y, rowHeight, rowSeparatorPen);
 
         for (int i = 0; i < values.Length; i++)
         {
@@ -154,23 +182,11 @@ public sealed class PdfAppendService
         };
     }
 
-    private static void DrawRowGrid(XGraphics gfx, PdfTableLayout layout, double y, double height, XPen gridPen)
+    private static void DrawRowSeparator(XGraphics gfx, PdfTableLayout layout, double y, double height, XPen rowSeparatorPen)
     {
-        var boundaries = GetColumnBoundaries(layout);
-        foreach (var x in boundaries)
-        {
-            gfx.DrawLine(gridPen, x, y, x, y + height);
-        }
-
-        gfx.DrawLine(gridPen, layout.TableLeft, y + height, layout.TableRight, y + height);
-    }
-
-    private static double[] GetColumnBoundaries(PdfTableLayout layout)
-    {
-        var boundaries = new double[layout.ColumnLefts.Length + 1];
-        Array.Copy(layout.ColumnLefts, boundaries, layout.ColumnLefts.Length);
-        boundaries[^1] = layout.TableRight;
-        return boundaries;
+        // Match the source table: appended rows use only the subtle horizontal
+        // separators from the Amazon PDF, not box-style vertical cell borders.
+        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y + height, layout.TableRight, y + height);
     }
 
     private static XRect CellRect(PdfTableLayout layout, int columnIndex, double y, double height, double padX, double padY)
