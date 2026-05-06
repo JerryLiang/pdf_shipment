@@ -227,7 +227,7 @@ public partial class MainForm : Form
         if (dialog.ShowDialog() != DialogResult.OK) return;
 
         btnExport.Enabled = false;
-        lblStatus.Text = "Status: Generating PDF...";
+        lblStatus.Text = "Status: Appending rows to PDF...";
         lblStatus.ForeColor = Color.Blue;
         Application.DoEvents();
 
@@ -240,7 +240,7 @@ public partial class MainForm : Form
             lblStatus.ForeColor = Color.Green;
 
             var result = MessageBox.Show(
-                $"PDF exported successfully!\n\n{dialog.FileName}\n\nOpen the file?",
+                $"PDF exported successfully!\n\n{_originalRows?.Count ?? 0} original rows + {newRows.Count} new rows appended.\n\nOpen the file?",
                 "Export Complete",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Information);
