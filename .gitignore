@@ -1,0 +1,44 @@
+## .NET / Visual Studio
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.vs/
+*.vscode/
+*.log
+TestResults/
+packages/
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+## NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+## IDE
+.idea/
+*.sln.docstates
+*.csproj.user
