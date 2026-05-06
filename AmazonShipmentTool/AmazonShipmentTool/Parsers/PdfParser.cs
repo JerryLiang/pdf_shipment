@@ -9,7 +9,7 @@ namespace AmazonShipmentTool.Parsers;
 public class PdfParser
 {
     private static readonly double[] ColBoundaries = { 50, 72, 161, 315, 359, 408, 458, 503 };
-        private static readonly string[] ColNames = { "Index", "BOL", "ARN", "PRO", "VendorName", "PalletCount", "CartonCount", "UnitCount", "POList" };
+    private static readonly string[] ColNames = { "Index", "ARN", "PRO", "BOL", "VendorName", "PalletCount", "CartonCount", "UnitCount", "POList" };
 
     public AppointmentInfo AppointmentInfo { get; private set; } = new();
     public List<ShipmentRow> ShipmentRows { get; private set; } = new();
@@ -255,17 +255,17 @@ public class PdfParser
 
                     if (startX >= 72 && startX < 161)
                     {
-                        if (!string.IsNullOrWhiteSpace(lastRow["ARN"]))
-                            lastRow["ARN"] += " " + continuationText;
-                        else
-                            lastRow["ARN"] = continuationText;
-                    }
-                    else if (startX >= 161 && startX < 315)
-                    {
                         if (!string.IsNullOrWhiteSpace(lastRow["PRO"]))
                             lastRow["PRO"] += " " + continuationText;
                         else
                             lastRow["PRO"] = continuationText;
+                    }
+                    else if (startX >= 161 && startX < 315)
+                    {
+                        if (!string.IsNullOrWhiteSpace(lastRow["BOL"]))
+                            lastRow["BOL"] += " " + continuationText;
+                        else
+                            lastRow["BOL"] = continuationText;
                     }
                 }
             }
