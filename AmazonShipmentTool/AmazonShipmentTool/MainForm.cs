@@ -240,7 +240,7 @@ public partial class MainForm : Form
             lblStatus.ForeColor = Color.Green;
 
             var result = MessageBox.Show(
-                $"PDF exported successfully!\n\n{_originalRows?.Count ?? 0} original rows + {newRows.Count} new rows appended.\n\nOpen the file?",
+                $"PDF exported successfully!\n\n{_originalRows?.Count ?? 0} original rows + {_excelRows?.Count ?? 0} new rows appended.\n\nOpen the file?",
                 "Export Complete",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Information);
