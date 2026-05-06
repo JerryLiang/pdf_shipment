@@ -14,7 +14,6 @@ public partial class MainForm : Form
     private List<ShipmentRow>? _excelRows;
     private List<ShipmentRow>? _mergedRows;
     private ValidationResult? _validationResult;
-    private PdfGenerator? _pdfGenerator;
 
     public MainForm()
     {
@@ -216,7 +215,7 @@ public partial class MainForm : Form
 
     private async void BtnExport_Click(object? sender, EventArgs e)
     {
-        if (_mergedRows == null || _appointmentInfo == null) return;
+        if (_originalRows == null || _excelRows == null || _appointmentInfo == null || _pdfPath == null) return;
 
         using var dialog = new SaveFileDialog
         {
@@ -234,10 +233,8 @@ public partial class MainForm : Form
 
         try
         {
-            _pdfGenerator ??= new PdfGenerator();
-            await _pdfGenerator.InitializeAsync();
-
-            await _pdfGenerator.GeneratePdfAsync(_appointmentInfo, _mergedRows, dialog.FileName);
+            var appendService = new PdfAppendService();
+            await Task.Run(() => appendService.AppendRowsToPdf(_pdfPath, _originalRows, _excelRows, dialog.FileName));
 
             lblStatus.Text = $"Status: PDF exported to {Path.GetFileName(dialog.FileName)}";
             lblStatus.ForeColor = Color.Green;
@@ -275,12 +272,11 @@ public partial class MainForm : Form
 
         var dir = Path.GetDirectoryName(_pdfPath) ?? "";
         var name = Path.GetFileNameWithoutExtension(_pdfPath);
-        return Path.Combine(dir, $"{name}_updated.pdf");
+        return Path.Combine(dir, $"{name}_appended.pdf");
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        _pdfGenerator?.Dispose();
         base.OnFormClosed(e);
     }
 }
