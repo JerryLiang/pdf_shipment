@@ -184,8 +184,10 @@ public sealed class PdfAppendService
 
     private static void DrawRowSeparator(XGraphics gfx, PdfTableLayout layout, double y, double height, XPen rowSeparatorPen)
     {
-        // Match the source table: appended rows use only the subtle horizontal
-        // separators from the Amazon PDF, not box-style vertical cell borders.
+        // Match the source table: keep the table's outside vertical borders and
+        // horizontal row separators, but do not draw internal column grid lines.
+        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y, layout.TableLeft, y + height);
+        gfx.DrawLine(rowSeparatorPen, layout.TableRight, y, layout.TableRight, y + height);
         gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y + height, layout.TableRight, y + height);
     }
 
