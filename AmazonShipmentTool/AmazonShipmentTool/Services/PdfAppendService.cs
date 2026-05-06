@@ -36,9 +36,10 @@ public sealed class PdfAppendService
         var currentY = layout.NextRowTop;
 
         var normalFont = new XFont("Arial", 6.0, XFontStyleEx.Regular);
+        var indexFont = new XFont("Arial", 7.4, XFontStyleEx.Regular);
         var textBrush = new XSolidBrush(XColor.FromArgb(32, 55, 59));
         var gridPen = new XPen(XColor.FromArgb(221, 221, 221), 0.45);
-        var borderPen = new XPen(XColor.FromArgb(230, 230, 230), 0.7);
+        var borderPen = new XPen(XColor.FromArgb(221, 221, 221), 0.45);
 
         XGraphics gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
         var segmentStartY = currentY;
@@ -46,7 +47,8 @@ public sealed class PdfAppendService
         {
             foreach (var row in numberedRows)
             {
-                if (currentY + layout.RowHeight > layout.BottomMargin)
+                var rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
+                if (currentY + rowHeight > layout.BottomMargin)
                 {
                     DrawAppendSegmentBorder(gfx, layout, segmentStartY, currentY, borderPen);
                     gfx.Dispose();
@@ -54,10 +56,11 @@ public sealed class PdfAppendService
                     gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
                     currentY = 24.0;
                     segmentStartY = currentY;
+                    rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
                 }
 
-                DrawDataRow(gfx, layout, row, currentY, normalFont, textBrush, gridPen);
-                currentY += layout.RowHeight;
+                DrawDataRow(gfx, layout, row, currentY, rowHeight, normalFont, indexFont, textBrush, gridPen);
+                currentY += rowHeight;
             }
 
             DrawAppendSegmentBorder(gfx, layout, segmentStartY, currentY, borderPen);
@@ -83,9 +86,30 @@ public sealed class PdfAppendService
     {
         if (endY <= startY) return;
 
-        gfx.DrawLine(borderPen, layout.TableLeft, startY, layout.TableLeft, endY);
-        gfx.DrawLine(borderPen, layout.TableRight, startY, layout.TableRight, endY);
+        var boundaries = GetColumnBoundaries(layout);
+        foreach (var x in boundaries)
+        {
+            gfx.DrawLine(borderPen, x, startY, x, endY);
+        }
+
         gfx.DrawLine(borderPen, layout.TableLeft, endY, layout.TableRight, endY);
+    }
+
+    private static double MeasureRowHeight(XGraphics gfx, PdfTableLayout layout, ShipmentRow row, XFont font)
+    {
+        var values = RowValues(row);
+        var maxLines = 1;
+        for (int i = 1; i < values.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(values[i])) continue;
+            var rect = CellRect(layout, i, 0, layout.RowHeight, i == 0 ? 0 : 5.4, 0);
+            maxLines = Math.Max(maxLines, WrapText(gfx, values[i].Trim(), font, rect.Width).Count);
+        }
+
+        if (maxLines <= 1) return layout.RowHeight;
+
+        var lineHeight = font.Size + 2.4;
+        return Math.Max(layout.RowHeight, 6.0 + maxLines * lineHeight);
     }
 
     private static void DrawDataRow(
@@ -93,11 +117,30 @@ public sealed class PdfAppendService
         PdfTableLayout layout,
         ShipmentRow row,
         double y,
-        XFont font,
+        double rowHeight,
+        XFont normalFont,
+        XFont indexFont,
         XBrush brush,
         XPen gridPen)
     {
-        var values = new[]
+        var values = RowValues(row);
+
+        DrawRowGrid(gfx, layout, y, rowHeight, gridPen);
+
+        for (int i = 0; i < values.Length; i++)
+        {
+            var rect = CellRect(layout, i, y, rowHeight, i == 0 ? 5.6 : 5.4, 0);
+            var font = i == 0 ? indexFont : normalFont;
+            if (i == 0)
+                DrawSingleLineText(gfx, values[i], font, brush, rect);
+            else
+                DrawCellText(gfx, values[i], font, brush, rect);
+        }
+    }
+
+    private static string[] RowValues(ShipmentRow row)
+    {
+        return new[]
         {
             row.Index.ToString(),
             row.Arn,
@@ -109,15 +152,25 @@ public sealed class PdfAppendService
             row.UnitCount?.ToString() ?? string.Empty,
             row.PoList
         };
+    }
 
-        gfx.DrawLine(gridPen, layout.TableLeft, y + layout.RowHeight, layout.TableRight, y + layout.RowHeight);
-
-        for (int i = 0; i < values.Length; i++)
+    private static void DrawRowGrid(XGraphics gfx, PdfTableLayout layout, double y, double height, XPen gridPen)
+    {
+        var boundaries = GetColumnBoundaries(layout);
+        foreach (var x in boundaries)
         {
-            var rect = CellRect(layout, i, y, layout.RowHeight, i == 0 ? 0 : 3, 0);
-            var center = i == 0 || i >= 5;
-            DrawSingleLineText(gfx, values[i], font, brush, rect, center);
+            gfx.DrawLine(gridPen, x, y, x, y + height);
         }
+
+        gfx.DrawLine(gridPen, layout.TableLeft, y + height, layout.TableRight, y + height);
+    }
+
+    private static double[] GetColumnBoundaries(PdfTableLayout layout)
+    {
+        var boundaries = new double[layout.ColumnLefts.Length + 1];
+        Array.Copy(layout.ColumnLefts, boundaries, layout.ColumnLefts.Length);
+        boundaries[^1] = layout.TableRight;
+        return boundaries;
     }
 
     private static XRect CellRect(PdfTableLayout layout, int columnIndex, double y, double height, double padX, double padY)
@@ -127,55 +180,107 @@ public sealed class PdfAppendService
         return new XRect(left, y + padY, Math.Max(1, right - left), Math.Max(1, height - padY * 2));
     }
 
-    private static void DrawSingleLineText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect, bool center)
+    private static void DrawSingleLineText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        var format = new XStringFormat
-        {
-            Alignment = center ? XStringAlignment.Center : XStringAlignment.Near,
-            LineAlignment = XLineAlignment.Center
-        };
-
-        var fitted = FitText(gfx, text.Trim(), font, rect.Width);
-        gfx.DrawString(fitted, font, brush, rect, format);
+        var y = rect.Y + Math.Max(0, (rect.Height - font.Size) / 2.0) + font.Size - 1.0;
+        gfx.DrawString(text.Trim(), font, brush, new XPoint(rect.X, y));
     }
 
-    private static void DrawWrappedText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect, bool center)
+    private static void DrawCellText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        var lines = text.Replace("\r", "").Split('\n');
-        var lineHeight = font.Size + 1.5;
-        var totalHeight = lines.Length * lineHeight;
+        var lines = WrapText(gfx, text.Trim(), font, rect.Width);
+        var lineHeight = font.Size + 2.4;
+        var totalHeight = lines.Count * lineHeight;
         var startY = rect.Y + Math.Max(0, (rect.Height - totalHeight) / 2.0) + font.Size;
 
         foreach (var line in lines)
         {
-            var format = new XStringFormat
-            {
-                Alignment = center ? XStringAlignment.Center : XStringAlignment.Near,
-                LineAlignment = XLineAlignment.Near
-            };
-            var lineRect = new XRect(rect.X, startY - font.Size, rect.Width, lineHeight);
-            gfx.DrawString(FitText(gfx, line.Trim(), font, rect.Width), font, brush, lineRect, format);
+            gfx.DrawString(line, font, brush, new XPoint(rect.X, startY));
             startY += lineHeight;
         }
     }
 
-    private static string FitText(XGraphics gfx, string text, XFont font, double maxWidth)
+    private static List<string> WrapText(XGraphics gfx, string text, XFont font, double maxWidth)
     {
-        if (string.IsNullOrEmpty(text) || gfx.MeasureString(text, font).Width <= maxWidth)
-            return text;
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(text)) return result;
 
-        const string ellipsis = "…";
-        var candidate = text;
-        while (candidate.Length > 1 && gfx.MeasureString(candidate + ellipsis, font).Width > maxWidth)
+        var effectiveMaxWidth = Math.Max(1, maxWidth * 0.86);
+        var normalized = text.Replace("\r", "").Replace("\n", " ").Trim();
+        foreach (var paragraph in normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            candidate = candidate[..^1];
+            AddWrappedToken(gfx, paragraph, font, effectiveMaxWidth, result);
         }
 
-        return candidate + ellipsis;
+        if (result.Count == 0)
+            result.Add(string.Empty);
+
+        return result;
+    }
+
+    private static void AddWrappedToken(XGraphics gfx, string token, XFont font, double maxWidth, List<string> lines)
+    {
+        var parts = token.Split(new[] { ',', '-' }, StringSplitOptions.None);
+        var separators = token.Where(c => c == ',' || c == '-').ToList();
+
+        if (parts.Length > 1)
+        {
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var part = parts[i];
+                var suffix = i < separators.Count ? separators[i].ToString() : string.Empty;
+                AddWrappedPiece(gfx, part + suffix, font, maxWidth, lines);
+            }
+            return;
+        }
+
+        AddWrappedPiece(gfx, token, font, maxWidth, lines);
+    }
+
+    private static void AddWrappedPiece(XGraphics gfx, string piece, XFont font, double maxWidth, List<string> lines)
+    {
+        if (string.IsNullOrEmpty(piece)) return;
+
+        var charLimit = Math.Max(1, (int)Math.Floor(maxWidth / Math.Max(1.0, font.Size * 0.58)));
+
+        if (lines.Count == 0)
+        {
+            if (piece.Length <= charLimit)
+            {
+                lines.Add(piece);
+                return;
+            }
+        }
+        else
+        {
+            var candidate = lines[^1] + piece;
+            if (candidate.Length <= charLimit && gfx.MeasureString(candidate, font).Width <= maxWidth)
+            {
+                lines[^1] = candidate;
+                return;
+            }
+        }
+
+        if (piece.Length <= charLimit && gfx.MeasureString(piece, font).Width <= maxWidth)
+        {
+            lines.Add(piece);
+            return;
+        }
+
+        var remaining = piece;
+        while (remaining.Length > 0)
+        {
+            var take = Math.Min(remaining.Length, charLimit);
+            while (take > 1 && gfx.MeasureString(remaining[..take], font).Width > maxWidth)
+                take--;
+
+            lines.Add(remaining[..take]);
+            remaining = remaining[take..];
+        }
     }
 
     private static ShipmentRow CloneWithIndex(ShipmentRow row, int index)

@@ -5,8 +5,8 @@ public sealed class PdfTableLayout
     public int PageIndex { get; set; }
     public double PageWidth { get; set; }
     public double PageHeight { get; set; }
-    public double TableLeft { get; set; } = 16.75;
-    public double TableRight { get; set; } = 579.0;
+    public double TableLeft { get; set; } = 19.5;
+    public double TableRight { get; set; } = 575.8;
     public double HeaderTop { get; set; } = 454.0;
     public double HeaderHeight { get; set; } = 24.0;
     public double FirstDataRowTop { get; set; } = 479.0;
@@ -18,27 +18,27 @@ public sealed class PdfTableLayout
 
     public double[] ColumnLefts { get; set; } =
     {
-        18.0,   // row number
-        49.0,   // ARN
-        72.0,   // PRO / Carrier Reference Number
-        161.0,  // BOL / Vendor Reference
-        315.0,  // Vendor Name
-        359.0,  // Pallet Count
-        408.0,  // Carton Count
-        458.0,  // Unit Count
-        503.0   // PO List
+        19.5,   // row number
+        43.7,   // ARN
+        67.4,   // PRO / Carrier Reference Number
+        155.8,  // BOL / Vendor Reference
+        309.8,  // Vendor Name
+        354.4,  // Pallet Count
+        402.3,  // Carton Count
+        453.5,  // Unit Count
+        498.1   // PO List
     };
 
     public double[] ColumnRights { get; set; } =
     {
-        49.0,
-        72.0,
-        161.0,
-        315.0,
-        359.0,
-        408.0,
-        458.0,
-        503.0,
-        579.0
+        43.7,
+        67.4,
+        155.8,
+        309.8,
+        354.4,
+        402.3,
+        453.5,
+        498.1,
+        575.8
     };
 }

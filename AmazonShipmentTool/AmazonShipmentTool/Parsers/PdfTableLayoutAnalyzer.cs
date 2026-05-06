@@ -7,8 +7,8 @@ namespace AmazonShipmentTool.Parsers;
 
 public sealed class PdfTableLayoutAnalyzer
 {
-    private const double DefaultTableLeft = 16.75;
-    private const double DefaultTableRight = 579.0;
+    private const double DefaultTableLeft = 19.5;
+    private const double DefaultTableRight = 575.8;
     private const double DefaultFirstDataRowTop = 479.0;
     private const double DefaultRowHeight = 15.814;
     private const double DefaultBottomMargin = 820.0;
