@@ -195,17 +195,21 @@ public class PdfParser
 
     private void ParseShipmentTable(List<List<Letter>> allLettersByPage)
     {
-        var allLines = new List<List<Letter>>();
+        var tableLinesByPage = new List<List<TableLine>>();
         bool foundHeader = false;
         bool headerRowSkipped = false;
 
         foreach (var letters in allLettersByPage)
         {
+            var pageLines = new List<TableLine>();
             var lines = GroupLettersIntoLines(letters, tolerance: 2.0);
 
             foreach (var line in lines)
             {
-                var lineText = string.Join("", line.OrderBy(l => l.Location.X).Select(l => l.Value)).Trim();
+                var orderedLetters = line.OrderBy(l => l.Location.X).ToList();
+                if (orderedLetters.Count == 0) continue;
+
+                var lineText = string.Join("", orderedLetters.Select(l => l.Value)).Trim();
 
                 if (!foundHeader)
                 {
@@ -225,53 +229,89 @@ public class PdfParser
                     headerRowSkipped = true;
                 }
 
-                allLines.Add(line);
+                pageLines.Add(new TableLine(orderedLetters, orderedLetters[0].Location.X, orderedLetters.Max(l => l.Location.Y), lineText));
             }
+
+            tableLinesByPage.Add(pageLines);
         }
 
         var dataRows = new List<Dictionary<string, string>>();
 
-        for (int i = 0; i < allLines.Count; i++)
+        foreach (var pageLines in tableLinesByPage)
         {
-            var line = allLines[i];
-            var orderedLetters = line.OrderBy(l => l.Location.X).ToList();
-            if (orderedLetters.Count == 0) continue;
+            var rowStarts = pageLines
+                .Where(IsRowStart)
+                .OrderByDescending(l => l.Y)
+                .ToList();
 
-            var firstCharValue = orderedLetters[0].Value;
-            var firstX = orderedLetters[0].Location.X;
+            var typicalRowGap = EstimateTypicalRowGap(rowStarts);
 
-            if (firstX < 40 && firstCharValue.Length > 0 && char.IsDigit(firstCharValue[0]))
+            for (int i = 0; i < rowStarts.Count; i++)
             {
-                var rowData = ExtractColumnsFromLetters(orderedLetters);
+                var rowLine = rowStarts[i];
+                var rowData = ExtractColumnsFromLetters(rowLine.Letters);
+
+                var previousGap = i == 0 ? typicalRowGap : rowStarts[i - 1].Y - rowLine.Y;
+                var nextGap = i == rowStarts.Count - 1 ? typicalRowGap : rowLine.Y - rowStarts[i + 1].Y;
+                var upperBoundary = rowLine.Y + previousGap / 2.0;
+                var lowerBoundary = rowLine.Y - nextGap / 2.0;
+
+                var continuationLines = pageLines
+                    .Where(line => !ReferenceEquals(line, rowLine) && !IsRowStart(line))
+                    .Where(line => line.Y < upperBoundary && line.Y > lowerBoundary)
+                    .OrderByDescending(line => line.Y)
+                    .ToList();
+
+                foreach (var continuationLine in continuationLines)
+                    AppendContinuationToRow(rowData, continuationLine);
+
                 dataRows.Add(rowData);
-            }
-            else if (dataRows.Count > 0)
-            {
-                var continuationText = string.Join("", orderedLetters.Select(l => l.Value)).Trim();
-                if (!string.IsNullOrWhiteSpace(continuationText))
-                {
-                    var lastRow = dataRows[^1];
-                    var startX = orderedLetters[0].Location.X;
-
-                    if (startX >= 72 && startX < 161)
-                    {
-                        if (!string.IsNullOrWhiteSpace(lastRow["PRO"]))
-                            lastRow["PRO"] += " " + continuationText;
-                        else
-                            lastRow["PRO"] = continuationText;
-                    }
-                    else if (startX >= 161 && startX < 315)
-                    {
-                        if (!string.IsNullOrWhiteSpace(lastRow["BOL"]))
-                            lastRow["BOL"] += " " + continuationText;
-                        else
-                            lastRow["BOL"] = continuationText;
-                    }
-                }
             }
         }
 
         ShipmentRows = BuildShipmentRows(dataRows);
+    }
+
+    private static bool IsRowStart(TableLine line)
+    {
+        return line.StartX < 40 &&
+               !string.IsNullOrEmpty(line.Text) &&
+               char.IsDigit(line.Text[0]);
+    }
+
+    private static double EstimateTypicalRowGap(IReadOnlyList<TableLine> rowStarts)
+    {
+        var gaps = rowStarts
+            .Zip(rowStarts.Skip(1), (current, next) => current.Y - next.Y)
+            .Where(gap => gap > 8 && gap < 40)
+            .OrderBy(gap => gap)
+            .ToList();
+
+        if (gaps.Count == 0)
+            return 16.0;
+
+        return gaps[gaps.Count / 2];
+    }
+
+    private static void AppendContinuationToRow(Dictionary<string, string> rowData, TableLine line)
+    {
+        if (string.IsNullOrWhiteSpace(line.Text)) return;
+
+        var targetColumn = line.StartX switch
+        {
+            >= 72 and < 161 => "PRO",
+            >= 161 and < 315 => "BOL",
+            >= 315 and < 359 => "VendorName",
+            >= 503 => "POList",
+            _ => null
+        };
+
+        if (targetColumn == null) return;
+
+        if (!string.IsNullOrWhiteSpace(rowData[targetColumn]))
+            rowData[targetColumn] += " " + line.Text;
+        else
+            rowData[targetColumn] = line.Text;
     }
 
     private List<List<Letter>> GroupLettersIntoLines(List<Letter> letters, double tolerance)
@@ -406,6 +446,8 @@ public class PdfParser
 
         return rows;
     }
+
+    private sealed record TableLine(List<Letter> Letters, double StartX, double Y, string Text);
 
     private static string? ExtractField(string text, string pattern)
     {
