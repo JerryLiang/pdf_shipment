@@ -53,7 +53,7 @@ public sealed class PdfAppendService
                 var rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
                 if (currentY + rowHeight > layout.BottomMargin)
                 {
-                    DrawOuterContainerExtension(gfx, currentY, outerBorderPen, isFirstAppendPage);
+                    DrawPageBreakContinuation(gfx, layout, currentY, outerBorderPen, rowSeparatorPen, isFirstAppendPage);
                     gfx.Dispose();
                     page = AddContinuationPage(document, layout);
                     gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
@@ -121,6 +121,30 @@ public sealed class PdfAppendService
         gfx.DrawLine(outerBorderPen, OuterLeft, startY, OuterLeft, endY);
         gfx.DrawLine(outerBorderPen, OuterRight, startY, OuterRight, endY);
         gfx.DrawLine(outerBorderPen, OuterLeft, endY, OuterRight, endY);
+    }
+
+    private static void DrawPageBreakContinuation(
+        XGraphics gfx,
+        PdfTableLayout layout,
+        double tableEndY,
+        XPen outerBorderPen,
+        XPen rowSeparatorPen,
+        bool isFirstAppendPage)
+    {
+        var outerStartY = isFirstAppendPage ? OriginalOuterBottom - 0.2 : OuterTop;
+        var pageBreakY = layout.BottomMargin;
+
+        // At a page break the Amazon PDF does not close the table/card with a
+        // bottom border.  It only lets the side borders run to the page break,
+        // then the next page continues with the same side-border style.
+        gfx.DrawLine(outerBorderPen, OuterLeft, outerStartY, OuterLeft, pageBreakY);
+        gfx.DrawLine(outerBorderPen, OuterRight, outerStartY, OuterRight, pageBreakY);
+
+        if (tableEndY < pageBreakY)
+        {
+            gfx.DrawLine(rowSeparatorPen, layout.TableLeft, tableEndY, layout.TableLeft, pageBreakY);
+            gfx.DrawLine(rowSeparatorPen, layout.TableRight, tableEndY, layout.TableRight, pageBreakY);
+        }
     }
 
     private static double MeasureRowHeight(XGraphics gfx, PdfTableLayout layout, ShipmentRow row, XFont font)
