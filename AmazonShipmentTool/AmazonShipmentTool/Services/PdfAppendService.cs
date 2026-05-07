@@ -67,6 +67,7 @@ public sealed class PdfAppendService
                 currentY += rowHeight;
             }
 
+            ScrubRightEditButtonArea(gfx, layout);
             DrawOuterContainerExtension(gfx, layout, currentY, outerBorderPen, isFirstAppendPage);
         }
         finally
@@ -123,6 +124,19 @@ public sealed class PdfAppendService
         // the last source row. Redraw the seam line so the first appended row is
         // visually connected to the original table.
         gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y, layout.TableRight, y);
+    }
+
+    private static void ScrubRightEditButtonArea(XGraphics gfx, PdfTableLayout layout)
+    {
+        // Link annotations are removed separately, but the visible Edit button/text is
+        // ordinary page content. Some viewers make the right-side button artifact more
+        // obvious, so explicitly clear only the unused right gutter and redraw borders.
+        var whiteBrush = new XSolidBrush(XColors.White);
+        var x = Math.Min(548.0, layout.PageWidth - 1.0);
+        var y = layout.FooterCoverTop;
+        var width = Math.Max(1.0, layout.PageWidth - x);
+        var height = Math.Max(0, layout.PageHeight - y);
+        gfx.DrawRectangle(whiteBrush, x, y, width, height);
     }
 
     private static void DrawOuterContainerExtension(XGraphics gfx, PdfTableLayout layout, double tableEndY, XPen outerBorderPen, bool isFirstAppendPage)
