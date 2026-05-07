@@ -46,7 +46,8 @@ public sealed class PdfAppendService
         try
         {
             RemoveEditAnnotations(page);
-            CoverOriginalEditAndOuterBottom(gfx);
+            CoverOriginalEditAndOuterBottom(gfx, layout);
+            DrawAppendStartSeparator(gfx, layout, currentY, rowSeparatorPen);
 
             foreach (var row in numberedRows)
             {
@@ -66,7 +67,7 @@ public sealed class PdfAppendService
                 currentY += rowHeight;
             }
 
-            DrawOuterContainerExtension(gfx, currentY, outerBorderPen, isFirstAppendPage);
+            DrawOuterContainerExtension(gfx, layout, currentY, outerBorderPen, isFirstAppendPage);
         }
         finally
         {
@@ -88,7 +89,6 @@ public sealed class PdfAppendService
     private const double OuterLeft = 10.23;
     private const double OuterRight = 585.12;
     private const double OuterTop = 14.25;
-    private const double OriginalOuterBottom = 722.62;
 
     private static void RemoveEditAnnotations(PdfPage page)
     {
@@ -103,19 +103,31 @@ public sealed class PdfAppendService
         }
     }
 
-    private static void CoverOriginalEditAndOuterBottom(XGraphics gfx)
+    private static void CoverOriginalEditAndOuterBottom(XGraphics gfx, PdfTableLayout layout)
     {
         var whiteBrush = new XSolidBrush(XColors.White);
 
         // The source Amazon PDF places the card bottom border and the yellow Edit link
-        // immediately below the last original row.  Cover them before drawing appended
+        // immediately below the last original row. Cover them before drawing appended
         // rows, otherwise the old card border cuts through the new table data.
-        gfx.DrawRectangle(whiteBrush, OuterLeft - 2.0, OriginalOuterBottom - 1.2, OuterRight - OuterLeft + 4.0, 24.0);
+        // Different PDFs can end at very different Y positions, so do not use a
+        // fixed template coordinate here; derive it from the detected last row.
+        var coverTop = layout.FooterCoverTop;
+        var coverHeight = Math.Max(0, layout.PageHeight - coverTop);
+        gfx.DrawRectangle(whiteBrush, OuterLeft - 2.0, coverTop, OuterRight - OuterLeft + 4.0, coverHeight);
     }
 
-    private static void DrawOuterContainerExtension(XGraphics gfx, double tableEndY, XPen outerBorderPen, bool isFirstAppendPage)
+    private static void DrawAppendStartSeparator(XGraphics gfx, PdfTableLayout layout, double y, XPen rowSeparatorPen)
     {
-        var startY = isFirstAppendPage ? OriginalOuterBottom - 0.2 : OuterTop;
+        // Covering the stale footer can also cover the original bottom separator of
+        // the last source row. Redraw the seam line so the first appended row is
+        // visually connected to the original table.
+        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y, layout.TableRight, y);
+    }
+
+    private static void DrawOuterContainerExtension(XGraphics gfx, PdfTableLayout layout, double tableEndY, XPen outerBorderPen, bool isFirstAppendPage)
+    {
+        var startY = isFirstAppendPage ? layout.FooterCoverTop : OuterTop;
         var endY = Math.Max(startY, tableEndY + 0.4);
 
         gfx.DrawLine(outerBorderPen, OuterLeft, startY, OuterLeft, endY);
@@ -131,7 +143,7 @@ public sealed class PdfAppendService
         XPen rowSeparatorPen,
         bool isFirstAppendPage)
     {
-        var outerStartY = isFirstAppendPage ? OriginalOuterBottom - 0.2 : OuterTop;
+        var outerStartY = isFirstAppendPage ? layout.FooterCoverTop : OuterTop;
         var pageBreakY = layout.BottomMargin;
 
         // At a page break the Amazon PDF does not close the table/card with a

@@ -15,6 +15,7 @@ public sealed class PdfTableLayout
     public double BottomMargin { get; set; } = 820.0;
 
     public double NextRowTop => LastDataRowTop + RowHeight;
+    public double FooterCoverTop => Math.Max(LastDataRowTop, NextRowTop - 4.0);
 
     public double[] ColumnLefts { get; set; } =
     {
