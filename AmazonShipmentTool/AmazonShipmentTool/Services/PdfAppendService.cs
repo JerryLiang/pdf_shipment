@@ -44,7 +44,8 @@ public sealed class PdfAppendService
             {
                 var pageTopAnchor = Math.Max(page.CropBox.Y1, page.CropBox.Y2);
                 layout.NormalizeToA4Portrait();
-                ResizePageToLayout(page, layout, pageTopAnchor);
+                var pageY = ResizePageToLayout(page, layout, pageTopAnchor);
+                layout.OffsetVertical(-pageY);
             }
             currentY = layout.FirstDataRowTop;
         }
@@ -111,7 +112,7 @@ public sealed class PdfAppendService
         return page;
     }
 
-    private static void ResizePageToLayout(PdfPage page, PdfTableLayout layout, double? topAnchor = null)
+    private static double ResizePageToLayout(PdfPage page, PdfTableLayout layout, double? topAnchor = null)
     {
         var pageY = topAnchor.HasValue ? topAnchor.Value - layout.PageHeight : 0;
         var pageRect = new XRect(0, pageY, layout.PageWidth, layout.PageHeight);
@@ -123,6 +124,7 @@ public sealed class PdfAppendService
         page.TrimBox = pdfRect;
         page.BleedBox = pdfRect;
         page.ArtBox = pdfRect;
+        return pageY;
     }
 
     private static PdfPage AddShipmentTablePage(PdfDocument document, PdfTableLayout layout)
