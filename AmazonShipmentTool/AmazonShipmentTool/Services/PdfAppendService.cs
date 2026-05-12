@@ -37,6 +37,7 @@ public sealed class PdfAppendService
 
         var page = document.Pages[Math.Min(layout.PageIndex, document.PageCount - 1)];
         var currentY = layout.NextRowTop;
+        var currentPageBottomMargin = layout.BottomMargin;
         if (!layout.HasShipmentTable)
         {
             var requiredStart = layout.HeaderTop + layout.HeaderHeight + layout.RowHeight;
@@ -46,6 +47,11 @@ public sealed class PdfAppendService
                 layout.NormalizeToA4Portrait();
                 var pageY = ResizePageToLayout(page, layout, pageTopAnchor);
                 layout.OffsetVertical(-pageY);
+                // The expanded first page is anchored with a negative MediaBox Y.
+                // PDFsharp overlay coordinates must use that shifted coordinate
+                // space for both drawing and pagination. Continuation pages are
+                // normal A4 pages, so only the first page gets this larger limit.
+                currentPageBottomMargin = layout.BottomMargin - pageY;
             }
             currentY = layout.FirstDataRowTop;
         }
@@ -77,13 +83,14 @@ public sealed class PdfAppendService
             foreach (var row in numberedRows)
             {
                 var rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
-                if (currentY + rowHeight > layout.BottomMargin)
+                if (currentY + rowHeight > currentPageBottomMargin)
                 {
-                    DrawPageBreakContinuation(gfx, layout, currentY, outerBorderPen, rowSeparatorPen, isFirstAppendPage);
+                    DrawPageBreakContinuation(gfx, layout, currentY, currentPageBottomMargin, outerBorderPen, rowSeparatorPen, isFirstAppendPage);
                     gfx.Dispose();
                     page = AddContinuationPage(document, layout);
                     gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
                     currentY = 24.0;
+                    currentPageBottomMargin = layout.BottomMargin;
                     isFirstAppendPage = false;
                     rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
                 }
@@ -288,6 +295,7 @@ public sealed class PdfAppendService
         XGraphics gfx,
         PdfTableLayout layout,
         double tableEndY,
+        double pageBreakY,
         XPen outerBorderPen,
         XPen rowSeparatorPen,
         bool isFirstAppendPage)
@@ -295,7 +303,6 @@ public sealed class PdfAppendService
         var outerStartY = layout.HasShipmentTable
             ? (isFirstAppendPage ? layout.FooterCoverTop : OuterTop)
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
-        var pageBreakY = layout.BottomMargin;
 
         // At a page break the Amazon PDF does not close the table/card with a
         // bottom border.  It only lets the side borders run to the page break,
