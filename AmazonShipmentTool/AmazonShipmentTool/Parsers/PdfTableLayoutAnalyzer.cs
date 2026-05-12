@@ -42,7 +42,11 @@ public sealed class PdfTableLayoutAnalyzer
                     text.Equals("Shipment info", StringComparison.OrdinalIgnoreCase))
                 {
                     firstShipmentPageIndex = page.Number - 1;
-                    headerTop = yTop + 21.0;
+                    // Place the shipment table below the section label with an
+                    // empty-line sized gap. A smaller offset makes the drawn
+                    // table overlap the appointment-info block on clipped PDFs
+                    // after their page boxes are expanded.
+                    headerTop = yTop + 29.0;
                     sawShipmentSectionLabel = true;
                 }
 
@@ -114,7 +118,8 @@ public sealed class PdfTableLayoutAnalyzer
             RowHeight = rowHeight,
             BottomMargin = Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0),
             HasShipmentTable = hasShipmentTable,
-            HasShipmentInfoLabel = sawShipmentSectionLabel
+            HasShipmentInfoLabel = sawShipmentSectionLabel,
+            HasOriginalDataRows = dataLines.Count > 0
         };
     }
 

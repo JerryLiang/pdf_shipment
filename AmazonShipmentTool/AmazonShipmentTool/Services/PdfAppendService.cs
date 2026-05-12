@@ -39,7 +39,9 @@ public sealed class PdfAppendService
             var requiredStart = layout.HeaderTop + layout.HeaderHeight + layout.RowHeight;
             if (requiredStart > layout.BottomMargin || layout.PageHeight < 800.0)
             {
+                var contentYOffset = CalculatePageExpansionContentYOffset(page, 841.92);
                 layout.NormalizeToA4Portrait();
+                layout.OffsetVertical(contentYOffset);
                 ResizePageToLayout(page, layout);
             }
             currentY = layout.FirstDataRowTop;
@@ -120,6 +122,19 @@ public sealed class PdfAppendService
         page.ArtBox = pdfRect;
     }
 
+    private static double CalculatePageExpansionContentYOffset(PdfPage page, double targetPageHeight)
+    {
+        // PDFsharp keeps the original page contents in their source MediaBox
+        // coordinates. If a browser PDF is a cropped Letter page and we expand
+        // it to A4, the original visible content appears lower by the new-height
+        // minus old-MediaBox-height delta, plus any crop-box top offset. Shift
+        // overlay coordinates by the same amount so the new table stays below the
+        // existing `Shipment info` / `Shipment Information` label.
+        var mediaHeight = page.MediaBox.Height;
+        var cropTopOffset = mediaHeight - Math.Max(page.CropBox.Y1, page.CropBox.Y2);
+        return Math.Max(0, targetPageHeight - mediaHeight + Math.Max(0, cropTopOffset));
+    }
+
     private static PdfPage AddShipmentTablePage(PdfDocument document, PdfTableLayout layout)
     {
         var page = document.AddPage();
@@ -134,7 +149,7 @@ public sealed class PdfAppendService
         // content becomes visible. Clear the area below the existing `Shipment info`
         // label before drawing the normalized reference-style table.
         var coverTop = layout.HasShipmentInfoLabel
-            ? Math.Max(0, layout.HeaderTop - 1.0)
+            ? Math.Max(0, layout.HeaderTop - 16.0)
             : Math.Max(0, layout.HeaderTop - 28.0);
         var whiteBrush = new XSolidBrush(XColors.White);
         gfx.DrawRectangle(whiteBrush, 0, coverTop, layout.PageWidth, Math.Max(0, layout.PageHeight - coverTop));
@@ -158,8 +173,11 @@ public sealed class PdfAppendService
         gfx.DrawRectangle(headerFill, layout.TableLeft, headerY, layout.TableRight - layout.TableLeft, layout.HeaderHeight);
         gfx.DrawLine(rowSeparatorPen, layout.TableLeft, headerY, layout.TableRight, headerY);
         gfx.DrawLine(rowSeparatorPen, layout.TableLeft, headerY + layout.HeaderHeight, layout.TableRight, headerY + layout.HeaderHeight);
-        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, headerY, layout.TableLeft, headerY + layout.HeaderHeight);
-        gfx.DrawLine(rowSeparatorPen, layout.TableRight, headerY, layout.TableRight, headerY + layout.HeaderHeight);
+        if (ShouldDrawTableSideBorders(layout))
+        {
+            gfx.DrawLine(rowSeparatorPen, layout.TableLeft, headerY, layout.TableLeft, headerY + layout.HeaderHeight);
+            gfx.DrawLine(rowSeparatorPen, layout.TableRight, headerY, layout.TableRight, headerY + layout.HeaderHeight);
+        }
 
         for (var i = 1; i < layout.ColumnLefts.Length; i++)
             gfx.DrawLine(rowSeparatorPen, layout.ColumnLefts[i], headerY, layout.ColumnLefts[i], headerY + layout.HeaderHeight);
@@ -262,6 +280,12 @@ public sealed class PdfAppendService
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
         var endY = Math.Max(startY, tableEndY + 0.4);
 
+        if (SuppressOuterContainerForEmptyTable(layout))
+        {
+            gfx.DrawLine(outerBorderPen, layout.TableLeft, endY, layout.TableRight, endY);
+            return;
+        }
+
         gfx.DrawLine(outerBorderPen, OuterLeft, startY, OuterLeft, endY);
         gfx.DrawLine(outerBorderPen, OuterRight, startY, OuterRight, endY);
         gfx.DrawLine(outerBorderPen, OuterLeft, endY, OuterRight, endY);
@@ -283,8 +307,11 @@ public sealed class PdfAppendService
         // At a page break the Amazon PDF does not close the table/card with a
         // bottom border.  It only lets the side borders run to the page break,
         // then the next page continues with the same side-border style.
-        gfx.DrawLine(outerBorderPen, OuterLeft, outerStartY, OuterLeft, pageBreakY);
-        gfx.DrawLine(outerBorderPen, OuterRight, outerStartY, OuterRight, pageBreakY);
+        if (!SuppressOuterContainerForEmptyTable(layout))
+        {
+            gfx.DrawLine(outerBorderPen, OuterLeft, outerStartY, OuterLeft, pageBreakY);
+            gfx.DrawLine(outerBorderPen, OuterRight, outerStartY, OuterRight, pageBreakY);
+        }
 
         if (tableEndY < pageBreakY)
         {
@@ -354,11 +381,27 @@ public sealed class PdfAppendService
 
     private static void DrawRowSeparator(XGraphics gfx, PdfTableLayout layout, double y, double height, XPen rowSeparatorPen)
     {
-        // Match the source table: keep the table's outside vertical borders and
-        // horizontal row separators, but do not draw internal column grid lines.
-        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y, layout.TableLeft, y + height);
-        gfx.DrawLine(rowSeparatorPen, layout.TableRight, y, layout.TableRight, y + height);
+        // Match the source table: keep horizontal row separators and only draw
+        // table outside vertical borders when the source body already had them.
+        if (ShouldDrawTableSideBorders(layout))
+        {
+            gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y, layout.TableLeft, y + height);
+            gfx.DrawLine(rowSeparatorPen, layout.TableRight, y, layout.TableRight, y + height);
+        }
         gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y + height, layout.TableRight, y + height);
+    }
+
+    private static bool ShouldDrawTableSideBorders(PdfTableLayout layout)
+    {
+        // Empty shipment-table PDFs already contain a header but no body rows.
+        // Their appended rows should not introduce the two outermost vertical
+        // lines around the data body.
+        return !layout.HasShipmentTable || layout.HasOriginalDataRows;
+    }
+
+    private static bool SuppressOuterContainerForEmptyTable(PdfTableLayout layout)
+    {
+        return layout.HasShipmentTable && !layout.HasOriginalDataRows;
     }
 
     private static XRect CellRect(PdfTableLayout layout, int columnIndex, double y, double height, double padX, double padY)

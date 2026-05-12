@@ -15,6 +15,7 @@ public sealed class PdfTableLayout
     public double BottomMargin { get; set; } = 820.0;
     public bool HasShipmentTable { get; set; } = true;
     public bool HasShipmentInfoLabel { get; set; } = true;
+    public bool HasOriginalDataRows { get; set; } = true;
 
     public double NextRowTop => LastDataRowTop + RowHeight;
     public double FooterCoverTop => Math.Max(LastDataRowTop, NextRowTop - 4.0);
@@ -53,6 +54,15 @@ public sealed class PdfTableLayout
         BottomMargin = 820.0;
     }
 
+    public void OffsetVertical(double offset)
+    {
+        if (Math.Abs(offset) < 0.01) return;
+
+        HeaderTop += offset;
+        FirstDataRowTop += offset;
+        LastDataRowTop += offset;
+    }
+
     public PdfTableLayout CloneForNewPortraitTablePage()
     {
         return new PdfTableLayout
@@ -70,6 +80,7 @@ public sealed class PdfTableLayout
             BottomMargin = 820.0,
             HasShipmentTable = false,
             HasShipmentInfoLabel = HasShipmentInfoLabel,
+            HasOriginalDataRows = HasOriginalDataRows,
             ColumnLefts = (double[])ColumnLefts.Clone(),
             ColumnRights = (double[])ColumnRights.Clone()
         };
