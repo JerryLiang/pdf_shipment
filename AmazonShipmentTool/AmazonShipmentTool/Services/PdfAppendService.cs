@@ -37,10 +37,10 @@ public sealed class PdfAppendService
         if (!layout.HasShipmentTable)
         {
             var requiredStart = layout.HeaderTop + layout.HeaderHeight + layout.RowHeight;
-            if (requiredStart > layout.BottomMargin)
+            if (requiredStart > layout.BottomMargin || layout.PageHeight < 800.0)
             {
-                layout = layout.CloneForNewPortraitTablePage();
-                page = AddShipmentTablePage(document, layout);
+                layout.NormalizeToA4Portrait();
+                ResizePageToLayout(page, layout);
             }
             currentY = layout.FirstDataRowTop;
         }
@@ -65,6 +65,7 @@ public sealed class PdfAppendService
             }
             else
             {
+                CoverNoTableShipmentArea(gfx, layout);
                 DrawShipmentTableHeader(gfx, layout, sectionFont, headerFont, textBrush, rowSeparatorPen, outerBorderPen);
             }
 
@@ -102,17 +103,41 @@ public sealed class PdfAppendService
     private static PdfPage AddContinuationPage(PdfDocument document, PdfTableLayout layout)
     {
         var page = document.AddPage();
+        ResizePageToLayout(page, layout);
+        return page;
+    }
+
+    private static void ResizePageToLayout(PdfPage page, PdfTableLayout layout)
+    {
+        var pageRect = new XRect(0, 0, layout.PageWidth, layout.PageHeight);
+        var pdfRect = new PdfRectangle(pageRect);
         page.Width = XUnit.FromPoint(layout.PageWidth);
         page.Height = XUnit.FromPoint(layout.PageHeight);
-        return page;
+        page.MediaBox = pdfRect;
+        page.CropBox = pdfRect;
+        page.TrimBox = pdfRect;
+        page.BleedBox = pdfRect;
+        page.ArtBox = pdfRect;
     }
 
     private static PdfPage AddShipmentTablePage(PdfDocument document, PdfTableLayout layout)
     {
         var page = document.AddPage();
-        page.Width = XUnit.FromPoint(layout.PageWidth);
-        page.Height = XUnit.FromPoint(layout.PageHeight);
+        ResizePageToLayout(page, layout);
         return page;
+    }
+
+    private static void CoverNoTableShipmentArea(XGraphics gfx, PdfTableLayout layout)
+    {
+        // Browser-generated PDFs may have the remaining shipment table content hidden
+        // below a clipped CropBox. Once we expand the page to A4, that stale hidden
+        // content becomes visible. Clear the area below the existing `Shipment info`
+        // label before drawing the normalized reference-style table.
+        var coverTop = layout.HasShipmentInfoLabel
+            ? Math.Max(0, layout.HeaderTop - 1.0)
+            : Math.Max(0, layout.HeaderTop - 28.0);
+        var whiteBrush = new XSolidBrush(XColors.White);
+        gfx.DrawRectangle(whiteBrush, 0, coverTop, layout.PageWidth, Math.Max(0, layout.PageHeight - coverTop));
     }
 
     private static void DrawShipmentTableHeader(
@@ -126,7 +151,8 @@ public sealed class PdfAppendService
     {
         var headerY = layout.HeaderTop;
         var sectionY = Math.Max(20.0, headerY - 22.0);
-        gfx.DrawString("Shipment Information", sectionFont, textBrush, new XPoint(layout.TableLeft, sectionY));
+        if (!layout.HasShipmentInfoLabel)
+            gfx.DrawString("Shipment info", sectionFont, textBrush, new XPoint(layout.TableLeft, sectionY));
 
         var headerFill = new XSolidBrush(XColor.FromArgb(250, 250, 250));
         gfx.DrawRectangle(headerFill, layout.TableLeft, headerY, layout.TableRight - layout.TableLeft, layout.HeaderHeight);

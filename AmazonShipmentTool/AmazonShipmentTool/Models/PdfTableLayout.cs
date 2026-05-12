@@ -14,6 +14,7 @@ public sealed class PdfTableLayout
     public double RowHeight { get; set; } = 15.814;
     public double BottomMargin { get; set; } = 820.0;
     public bool HasShipmentTable { get; set; } = true;
+    public bool HasShipmentInfoLabel { get; set; } = true;
 
     public double NextRowTop => LastDataRowTop + RowHeight;
     public double FooterCoverTop => Math.Max(LastDataRowTop, NextRowTop - 4.0);
@@ -44,6 +45,14 @@ public sealed class PdfTableLayout
         575.8
     };
 
+    public void NormalizeToA4Portrait()
+    {
+        PageWidth = 594.96;
+        PageHeight = 841.92;
+        TableRight = 575.8;
+        BottomMargin = 820.0;
+    }
+
     public PdfTableLayout CloneForNewPortraitTablePage()
     {
         return new PdfTableLayout
@@ -60,6 +69,7 @@ public sealed class PdfTableLayout
             RowHeight = RowHeight,
             BottomMargin = 820.0,
             HasShipmentTable = false,
+            HasShipmentInfoLabel = HasShipmentInfoLabel,
             ColumnLefts = (double[])ColumnLefts.Clone(),
             ColumnRights = (double[])ColumnRights.Clone()
         };

@@ -95,9 +95,9 @@ public sealed class PdfTableLayoutAnalyzer
 
         var rowHeight = EstimateRowHeight(pageDataLines);
         var hasShipmentTable = dataLines.Count > 0 || sawColumnHeader;
-        var defaultFirstDataTop = firstShipmentPageIndex >= 0
-            ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop)
-            : DefaultFirstDataRowTop;
+        var defaultFirstDataTop = hasShipmentTable
+            ? (firstShipmentPageIndex >= 0 ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop) : DefaultFirstDataRowTop)
+            : (firstShipmentPageIndex >= 0 ? headerTop + 24.0 : DefaultFirstDataRowTop);
         var lastDataTop = lastDataLine?.Top ?? (hasShipmentTable ? defaultFirstDataTop : defaultFirstDataTop - rowHeight);
 
         return new PdfTableLayout
@@ -113,7 +113,8 @@ public sealed class PdfTableLayoutAnalyzer
             LastDataRowTop = lastDataTop,
             RowHeight = rowHeight,
             BottomMargin = Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0),
-            HasShipmentTable = hasShipmentTable
+            HasShipmentTable = hasShipmentTable,
+            HasShipmentInfoLabel = sawShipmentSectionLabel
         };
     }
 
