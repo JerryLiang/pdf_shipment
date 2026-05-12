@@ -37,6 +37,8 @@ public sealed class PdfTableLayoutAnalyzer
                 var text = string.Join("", ordered.Select(l => l.Value)).Trim();
                 var x = ordered[0].Location.X;
                 var yTop = ToTopY(page.Height, ordered);
+                if (!IsVisibleLine(page.Height, ordered, yTop))
+                    continue;
 
                 if (text.Contains("Shipment Information", StringComparison.OrdinalIgnoreCase) ||
                     text.Equals("Shipment info", StringComparison.OrdinalIgnoreCase))
@@ -145,6 +147,12 @@ public sealed class PdfTableLayoutAnalyzer
     {
         var maxBaselineY = line.Max(l => l.Location.Y);
         return pageHeight - maxBaselineY - 10.0;
+    }
+
+    private static bool IsVisibleLine(double pageHeight, List<Letter> line, double yTop)
+    {
+        var maxBaselineY = line.Max(l => l.Location.Y);
+        return maxBaselineY >= 0 && yTop <= pageHeight;
     }
 
     private static List<List<Letter>> GroupLettersIntoLines(List<Letter> letters, double tolerance)

@@ -210,6 +210,8 @@ public class PdfParser
                 if (orderedLetters.Count == 0) continue;
 
                 var lineText = string.Join("", orderedLetters.Select(l => l.Value)).Trim();
+                if (!IsVisibleLine(orderedLetters))
+                    continue;
 
                 if (!foundHeader)
                 {
@@ -277,6 +279,12 @@ public class PdfParser
         return line.StartX < 40 &&
                !string.IsNullOrEmpty(line.Text) &&
                char.IsDigit(line.Text[0]);
+    }
+
+    private static bool IsVisibleLine(List<Letter> line)
+    {
+        var maxBaselineY = line.Max(l => l.Location.Y);
+        return maxBaselineY >= 0;
     }
 
     private static double EstimateTypicalRowGap(IReadOnlyList<TableLine> rowStarts)
