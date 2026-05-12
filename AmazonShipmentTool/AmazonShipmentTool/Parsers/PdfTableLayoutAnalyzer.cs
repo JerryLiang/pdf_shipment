@@ -23,6 +23,8 @@ public sealed class PdfTableLayoutAnalyzer
         var dataLines = new List<DataLine>();
         var firstShipmentPageIndex = -1;
         var headerTop = 454.0;
+        var sawShipmentSectionLabel = false;
+        var sawColumnHeader = false;
 
         foreach (var page in pages)
         {
@@ -36,13 +38,25 @@ public sealed class PdfTableLayoutAnalyzer
                 var x = ordered[0].Location.X;
                 var yTop = ToTopY(page.Height, ordered);
 
-                if (text.Contains("Shipment Information", StringComparison.OrdinalIgnoreCase))
+                if (text.Contains("Shipment Information", StringComparison.OrdinalIgnoreCase) ||
+                    text.Equals("Shipment info", StringComparison.OrdinalIgnoreCase))
                 {
                     firstShipmentPageIndex = page.Number - 1;
                     headerTop = yTop + 21.0;
+                    sawShipmentSectionLabel = true;
                 }
 
-                if (x < 40)
+                if (sawShipmentSectionLabel &&
+                    (text.Contains("PRO/Carrier", StringComparison.OrdinalIgnoreCase) ||
+                     text.Contains("BOL/Vendor", StringComparison.OrdinalIgnoreCase) ||
+                     text.Contains("Pallet Count", StringComparison.OrdinalIgnoreCase) ||
+                     text.Contains("PO List", StringComparison.OrdinalIgnoreCase) ||
+                     (text.Equals("ARN", StringComparison.OrdinalIgnoreCase) && x > 35 && x < 80)))
+                {
+                    sawColumnHeader = true;
+                }
+
+                if (sawColumnHeader && x < 40)
                 {
                     var rowNumberText = string.Join("", ordered
                         .Where(l => l.Location.X < 50)
@@ -80,7 +94,11 @@ public sealed class PdfTableLayoutAnalyzer
             .ToList();
 
         var rowHeight = EstimateRowHeight(pageDataLines);
-        var lastDataTop = lastDataLine?.Top ?? DefaultFirstDataRowTop;
+        var hasShipmentTable = dataLines.Count > 0 || sawColumnHeader;
+        var defaultFirstDataTop = firstShipmentPageIndex >= 0
+            ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop)
+            : DefaultFirstDataRowTop;
+        var lastDataTop = lastDataLine?.Top ?? (hasShipmentTable ? defaultFirstDataTop : defaultFirstDataTop - rowHeight);
 
         return new PdfTableLayout
         {
@@ -91,10 +109,11 @@ public sealed class PdfTableLayoutAnalyzer
             TableRight = Math.Min(DefaultTableRight, pageForLayout.Width - 16.0),
             HeaderTop = headerTop,
             HeaderHeight = 24.0,
-            FirstDataRowTop = pageDataLines.FirstOrDefault()?.Top ?? DefaultFirstDataRowTop,
+            FirstDataRowTop = pageDataLines.FirstOrDefault()?.Top ?? defaultFirstDataTop,
             LastDataRowTop = lastDataTop,
             RowHeight = rowHeight,
-            BottomMargin = Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0)
+            BottomMargin = Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0),
+            HasShipmentTable = hasShipmentTable
         };
     }
 

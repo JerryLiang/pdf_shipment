@@ -34,9 +34,21 @@ public sealed class PdfAppendService
 
         var page = document.Pages[Math.Min(layout.PageIndex, document.PageCount - 1)];
         var currentY = layout.NextRowTop;
+        if (!layout.HasShipmentTable)
+        {
+            var requiredStart = layout.HeaderTop + layout.HeaderHeight + layout.RowHeight;
+            if (requiredStart > layout.BottomMargin)
+            {
+                layout = layout.CloneForNewPortraitTablePage();
+                page = AddShipmentTablePage(document, layout);
+            }
+            currentY = layout.FirstDataRowTop;
+        }
 
         var normalFont = new XFont("Arial", 6.0, XFontStyleEx.Regular);
         var indexFont = new XFont("Arial", 7.4, XFontStyleEx.Regular);
+        var headerFont = new XFont("Arial", 6.0, XFontStyleEx.Bold);
+        var sectionFont = new XFont("Arial", 9.5, XFontStyleEx.Bold);
         var textBrush = new XSolidBrush(XColor.FromArgb(32, 55, 59));
         var rowSeparatorPen = new XPen(XColor.FromArgb(221, 221, 221), 0.45);
         var outerBorderPen = new XPen(XColor.FromArgb(136, 140, 140), 0.47);
@@ -45,9 +57,16 @@ public sealed class PdfAppendService
         var isFirstAppendPage = true;
         try
         {
-            RemoveEditAnnotations(page);
-            CoverOriginalEditAndOuterBottom(gfx, layout);
-            DrawAppendStartSeparator(gfx, layout, currentY, rowSeparatorPen);
+            if (layout.HasShipmentTable)
+            {
+                RemoveEditAnnotations(page);
+                CoverOriginalEditAndOuterBottom(gfx, layout);
+                DrawAppendStartSeparator(gfx, layout, currentY, rowSeparatorPen);
+            }
+            else
+            {
+                DrawShipmentTableHeader(gfx, layout, sectionFont, headerFont, textBrush, rowSeparatorPen, outerBorderPen);
+            }
 
             foreach (var row in numberedRows)
             {
@@ -67,7 +86,8 @@ public sealed class PdfAppendService
                 currentY += rowHeight;
             }
 
-            ScrubRightEditButtonArea(gfx, layout);
+            if (layout.HasShipmentTable)
+                ScrubRightEditButtonArea(gfx, layout);
             DrawOuterContainerExtension(gfx, layout, currentY, outerBorderPen, isFirstAppendPage);
         }
         finally
@@ -85,6 +105,76 @@ public sealed class PdfAppendService
         page.Width = XUnit.FromPoint(layout.PageWidth);
         page.Height = XUnit.FromPoint(layout.PageHeight);
         return page;
+    }
+
+    private static PdfPage AddShipmentTablePage(PdfDocument document, PdfTableLayout layout)
+    {
+        var page = document.AddPage();
+        page.Width = XUnit.FromPoint(layout.PageWidth);
+        page.Height = XUnit.FromPoint(layout.PageHeight);
+        return page;
+    }
+
+    private static void DrawShipmentTableHeader(
+        XGraphics gfx,
+        PdfTableLayout layout,
+        XFont sectionFont,
+        XFont headerFont,
+        XBrush textBrush,
+        XPen rowSeparatorPen,
+        XPen outerBorderPen)
+    {
+        var headerY = layout.HeaderTop;
+        var sectionY = Math.Max(20.0, headerY - 22.0);
+        gfx.DrawString("Shipment Information", sectionFont, textBrush, new XPoint(layout.TableLeft, sectionY));
+
+        var headerFill = new XSolidBrush(XColor.FromArgb(250, 250, 250));
+        gfx.DrawRectangle(headerFill, layout.TableLeft, headerY, layout.TableRight - layout.TableLeft, layout.HeaderHeight);
+        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, headerY, layout.TableRight, headerY);
+        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, headerY + layout.HeaderHeight, layout.TableRight, headerY + layout.HeaderHeight);
+        gfx.DrawLine(rowSeparatorPen, layout.TableLeft, headerY, layout.TableLeft, headerY + layout.HeaderHeight);
+        gfx.DrawLine(rowSeparatorPen, layout.TableRight, headerY, layout.TableRight, headerY + layout.HeaderHeight);
+
+        for (var i = 1; i < layout.ColumnLefts.Length; i++)
+            gfx.DrawLine(rowSeparatorPen, layout.ColumnLefts[i], headerY, layout.ColumnLefts[i], headerY + layout.HeaderHeight);
+
+        var labels = new[]
+        {
+            string.Empty,
+            "ARN",
+            "PRO/Carrier\nReference Number",
+            "BOL/Vendor\nReference Number",
+            "Vendor\nName",
+            "Pallet\nCount",
+            "Carton\nCount",
+            "Unit\nCount",
+            "PO List"
+        };
+
+        for (var i = 1; i < labels.Length; i++)
+        {
+            var rect = CellRect(layout, i, headerY, layout.HeaderHeight, 3.0, 2.5);
+            DrawHeaderText(gfx, labels[i], headerFont, textBrush, rect);
+        }
+
+        // The Amazon page uses a larger card around the shipment table.  Start the
+        // card at the shipment section label and let DrawOuterContainerExtension()
+        // close it after rows are appended.
+        gfx.DrawLine(outerBorderPen, OuterLeft, sectionY - 14.0, OuterLeft, layout.FirstDataRowTop);
+        gfx.DrawLine(outerBorderPen, OuterRight, sectionY - 14.0, OuterRight, layout.FirstDataRowTop);
+    }
+
+    private static void DrawHeaderText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
+    {
+        var lines = text.Split('\n');
+        var lineHeight = font.Size + 1.2;
+        var totalHeight = lines.Length * lineHeight;
+        var y = rect.Y + Math.Max(0, (rect.Height - totalHeight) / 2.0) + font.Size;
+        foreach (var line in lines)
+        {
+            gfx.DrawString(line, font, brush, new XPoint(rect.X, y));
+            y += lineHeight;
+        }
     }
 
     private const double OuterLeft = 10.23;
@@ -141,7 +231,9 @@ public sealed class PdfAppendService
 
     private static void DrawOuterContainerExtension(XGraphics gfx, PdfTableLayout layout, double tableEndY, XPen outerBorderPen, bool isFirstAppendPage)
     {
-        var startY = isFirstAppendPage ? layout.FooterCoverTop : OuterTop;
+        var startY = layout.HasShipmentTable
+            ? (isFirstAppendPage ? layout.FooterCoverTop : OuterTop)
+            : Math.Max(OuterTop, layout.HeaderTop - 36.0);
         var endY = Math.Max(startY, tableEndY + 0.4);
 
         gfx.DrawLine(outerBorderPen, OuterLeft, startY, OuterLeft, endY);
@@ -157,7 +249,9 @@ public sealed class PdfAppendService
         XPen rowSeparatorPen,
         bool isFirstAppendPage)
     {
-        var outerStartY = isFirstAppendPage ? layout.FooterCoverTop : OuterTop;
+        var outerStartY = layout.HasShipmentTable
+            ? (isFirstAppendPage ? layout.FooterCoverTop : OuterTop)
+            : Math.Max(OuterTop, layout.HeaderTop - 36.0);
         var pageBreakY = layout.BottomMargin;
 
         // At a page break the Amazon PDF does not close the table/card with a
