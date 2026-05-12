@@ -42,10 +42,9 @@ public sealed class PdfAppendService
             var requiredStart = layout.HeaderTop + layout.HeaderHeight + layout.RowHeight;
             if (requiredStart > layout.BottomMargin || layout.PageHeight < 800.0)
             {
-                var contentYOffset = CalculatePageExpansionContentYOffset(page, 841.92);
+                var pageTopAnchor = Math.Max(page.CropBox.Y1, page.CropBox.Y2);
                 layout.NormalizeToA4Portrait();
-                layout.OffsetVertical(contentYOffset);
-                ResizePageToLayout(page, layout);
+                ResizePageToLayout(page, layout, pageTopAnchor);
             }
             currentY = layout.FirstDataRowTop;
         }
@@ -112,9 +111,10 @@ public sealed class PdfAppendService
         return page;
     }
 
-    private static void ResizePageToLayout(PdfPage page, PdfTableLayout layout)
+    private static void ResizePageToLayout(PdfPage page, PdfTableLayout layout, double? topAnchor = null)
     {
-        var pageRect = new XRect(0, 0, layout.PageWidth, layout.PageHeight);
+        var pageY = topAnchor.HasValue ? topAnchor.Value - layout.PageHeight : 0;
+        var pageRect = new XRect(0, pageY, layout.PageWidth, layout.PageHeight);
         var pdfRect = new PdfRectangle(pageRect);
         page.Width = XUnit.FromPoint(layout.PageWidth);
         page.Height = XUnit.FromPoint(layout.PageHeight);
@@ -123,19 +123,6 @@ public sealed class PdfAppendService
         page.TrimBox = pdfRect;
         page.BleedBox = pdfRect;
         page.ArtBox = pdfRect;
-    }
-
-    private static double CalculatePageExpansionContentYOffset(PdfPage page, double targetPageHeight)
-    {
-        // PDFsharp keeps the original page contents in their source MediaBox
-        // coordinates. If a browser PDF is a cropped Letter page and we expand
-        // it to A4, the original visible content appears lower by the new-height
-        // minus old-MediaBox-height delta, plus any crop-box top offset. Shift
-        // overlay coordinates by the same amount so the new table stays below the
-        // existing `Shipment info` / `Shipment Information` label.
-        var mediaHeight = page.MediaBox.Height;
-        var cropTopOffset = mediaHeight - Math.Max(page.CropBox.Y1, page.CropBox.Y2);
-        return Math.Max(0, targetPageHeight - mediaHeight + Math.Max(0, cropTopOffset));
     }
 
     private static PdfPage AddShipmentTablePage(PdfDocument document, PdfTableLayout layout)
@@ -288,10 +275,7 @@ public sealed class PdfAppendService
         var endY = Math.Max(startY, tableEndY + 0.4);
 
         if (SuppressOuterContainerForEmptyTable(layout))
-        {
-            gfx.DrawLine(outerBorderPen, layout.TableLeft, endY, layout.TableRight, endY);
             return;
-        }
 
         gfx.DrawLine(outerBorderPen, OuterLeft, startY, OuterLeft, endY);
         gfx.DrawLine(outerBorderPen, OuterRight, startY, OuterRight, endY);
