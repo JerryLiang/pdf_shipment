@@ -23,6 +23,9 @@ public sealed class PdfAppendService
 
         var analyzer = new PdfTableLayoutAnalyzer();
         var layout = analyzer.Analyze(originalPdfPath);
+        // The parser can occasionally see hidden/cropped row-number text in browser PDFs.
+        // The authoritative signal for an empty source table is the parsed original row list.
+        layout.HasOriginalDataRows = originalRows.Count > 0;
         PdfFontResolver.EnsureRegistered();
 
         using var document = PdfReader.Open(originalPdfPath, PdfDocumentOpenMode.Modify);
@@ -201,11 +204,15 @@ public sealed class PdfAppendService
             DrawHeaderText(gfx, labels[i], headerFont, textBrush, rect);
         }
 
-        // The Amazon page uses a larger card around the shipment table.  Start the
-        // card at the shipment section label and let DrawOuterContainerExtension()
-        // close it after rows are appended.
-        gfx.DrawLine(outerBorderPen, OuterLeft, sectionY - 14.0, OuterLeft, layout.FirstDataRowTop);
-        gfx.DrawLine(outerBorderPen, OuterRight, sectionY - 14.0, OuterRight, layout.FirstDataRowTop);
+        // The Amazon page uses a larger card around the shipment table. Start the
+        // card at the shipment section label only when we are extending a source
+        // table that already had data rows. Empty-table outputs should not add
+        // the two outermost vertical lines.
+        if (layout.HasOriginalDataRows)
+        {
+            gfx.DrawLine(outerBorderPen, OuterLeft, sectionY - 14.0, OuterLeft, layout.FirstDataRowTop);
+            gfx.DrawLine(outerBorderPen, OuterRight, sectionY - 14.0, OuterRight, layout.FirstDataRowTop);
+        }
     }
 
     private static void DrawHeaderText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
@@ -313,7 +320,7 @@ public sealed class PdfAppendService
             gfx.DrawLine(outerBorderPen, OuterRight, outerStartY, OuterRight, pageBreakY);
         }
 
-        if (tableEndY < pageBreakY)
+        if (tableEndY < pageBreakY && ShouldDrawTableSideBorders(layout))
         {
             gfx.DrawLine(rowSeparatorPen, layout.TableLeft, tableEndY, layout.TableLeft, pageBreakY);
             gfx.DrawLine(rowSeparatorPen, layout.TableRight, tableEndY, layout.TableRight, pageBreakY);
@@ -393,15 +400,14 @@ public sealed class PdfAppendService
 
     private static bool ShouldDrawTableSideBorders(PdfTableLayout layout)
     {
-        // Empty shipment-table PDFs already contain a header but no body rows.
-        // Their appended rows should not introduce the two outermost vertical
-        // lines around the data body.
-        return !layout.HasShipmentTable || layout.HasOriginalDataRows;
+        // Empty source tables should not introduce the two outermost vertical
+        // lines around the generated data/header body.
+        return layout.HasOriginalDataRows;
     }
 
     private static bool SuppressOuterContainerForEmptyTable(PdfTableLayout layout)
     {
-        return layout.HasShipmentTable && !layout.HasOriginalDataRows;
+        return !layout.HasOriginalDataRows;
     }
 
     private static XRect CellRect(PdfTableLayout layout, int columnIndex, double y, double height, double padX, double padY)
