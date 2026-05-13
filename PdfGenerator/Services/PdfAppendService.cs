@@ -32,7 +32,12 @@ public sealed class PdfAppendService
         if (document.PageCount == 0)
             throw new InvalidOperationException("PDF does not contain any pages.");
 
-        var maxIndex = originalRows.Count > 0 ? originalRows.Max(r => r.Index) : 0;
+        // PdfParser can miss rows in Amazon's embedded/Type3 landscape tables.
+        // The layout analyzer reads visible row-number positions directly, so use
+        // the greater of both sources to prevent appended rows from restarting at 1
+        // or continuing from a too-small parsed subset.
+        var parsedMaxIndex = originalRows.Count > 0 ? originalRows.Max(r => r.Index) : 0;
+        var maxIndex = Math.Max(parsedMaxIndex, layout.MaxOriginalRowIndex);
         var numberedRows = rowsToAppend.Select((row, i) => CloneWithIndex(row, maxIndex + i + 1)).ToList();
         if (layout.IsLandscapeTable)
         {
@@ -175,7 +180,10 @@ public sealed class PdfAppendService
     private const double LandscapeRowHeight = 21.289;
     private static readonly double[] LandscapeColumnLefts = { 51.916, 84.138, 112.908, 221.657, 411.536, 466.773, 526.038, 588.756, 643.993 };
     private static readonly double[] LandscapeColumnRights = { 84.138, 112.908, 221.657, 411.536, 466.773, 526.038, 588.756, 643.993, 740.084 };
-    private static readonly double[] LandscapeTextXs = { 58.82, 119.86, 228.50, 315.20, 418.47, 473.47, 532.75, 595.39, 651.00 };
+    // Match RowValues(): index, ARN, PRO/Carrier, BOL, Vendor, Pallet, Carton, Unit, PO.
+    // A previous version omitted the ARN anchor, which shifted Excel PRO/FBA values into
+    // the BOL column and made appended data appear in the wrong positions.
+    private static readonly double[] LandscapeTextXs = { 58.82, 90.80, 119.86, 228.50, 418.47, 473.47, 532.75, 595.39, 651.00 };
 
     private static void ResizeLandscapePage(PdfPage page)
     {
@@ -204,16 +212,16 @@ public sealed class PdfAppendService
             }
         }
 
-        // Original landscape PDFs have both a thin light table edge and an outer dark vertical bar.
-        // The user specifically expects the left outer bar to be visually stronger.
-        gfx.DrawRectangle(darkBrush, 40.15, LandscapeTop, 1.30, endY - LandscapeTop);
-        gfx.DrawRectangle(darkBrush, 751.016, LandscapeTop, 0.58, endY - LandscapeTop);
+        // Original landscape PDFs have both a thin light table edge and an outside dark bar.
+        // Match the rendered source weight; do not invent thicker bars or internal grid lines.
+        gfx.DrawRectangle(darkBrush, 40.25, LandscapeTop, 0.70, endY - LandscapeTop);
+        gfx.DrawRectangle(darkBrush, 751.00, LandscapeTop, 0.50, endY - LandscapeTop);
         gfx.DrawRectangle(gridBrush, 51.341, LandscapeTop, 0.58, endY - LandscapeTop);
         gfx.DrawRectangle(gridBrush, 740.084, LandscapeTop, 0.58, endY - LandscapeTop);
 
         if (!fullPage)
         {
-            gfx.DrawRectangle(darkBrush, 40.15, endY - 0.58, 711.44, 0.58);
+            gfx.DrawRectangle(darkBrush, 40.25, endY - 0.50, 711.25, 0.50);
             gfx.DrawRectangle(gridBrush, 51.341, endY - 0.58, 689.318, 0.58);
         }
     }
@@ -413,7 +421,10 @@ public sealed class PdfAppendService
     {
         var startY = layout.HasShipmentTable
             ? (isFirstAppendPage
-                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? OuterTop : layout.FooterCoverTop)
+                // Header-only portrait sources already have a visible table header.
+                // Do not redraw/extend the outside card bars upward through source content;
+                // connect them only from the first generated data row downward.
+                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? layout.FirstDataRowTop : layout.FooterCoverTop)
                 : OuterTop)
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
         var endY = Math.Max(startY, tableEndY + 0.4);
@@ -437,7 +448,7 @@ public sealed class PdfAppendService
     {
         var outerStartY = layout.HasShipmentTable
             ? (isFirstAppendPage
-                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? OuterTop : layout.FooterCoverTop)
+                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? layout.FirstDataRowTop : layout.FooterCoverTop)
                 : OuterTop)
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
 

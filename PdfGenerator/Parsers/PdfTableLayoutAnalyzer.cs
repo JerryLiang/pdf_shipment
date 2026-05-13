@@ -69,13 +69,14 @@ public sealed class PdfTableLayoutAnalyzer
                     }
                 }
 
-                if (sawColumnHeader && x < 40)
+                var rowNumberRightEdge = page.Width > 700.0 ? 90.0 : 50.0;
+                if (sawColumnHeader && x < rowNumberRightEdge)
                 {
                     var rowNumberText = string.Join("", ordered
-                        .Where(l => l.Location.X < 50)
+                        .Where(l => l.Location.X < rowNumberRightEdge)
                         .OrderBy(l => l.Location.X)
                         .Select(l => l.Value));
-                    var match = Regex.Match(rowNumberText, @"^\d+");
+                    var match = Regex.Match(rowNumberText.Trim(), @"^\d{1,3}$");
                     if (match.Success && int.TryParse(match.Value, out var rowNumber))
                     {
                         dataLines.Add(new DataLine(page.Number - 1, rowNumber, yTop));
@@ -143,7 +144,8 @@ public sealed class PdfTableLayoutAnalyzer
             HasShipmentInfoLabel = sawShipmentSectionLabel,
             HasOriginalDataRows = dataLines.Count > 0,
             IsLandscapeTable = isLandscapeTable,
-            HasVisibleColumnHeader = sawColumnHeader
+            HasVisibleColumnHeader = sawColumnHeader,
+            MaxOriginalRowIndex = dataLines.Count > 0 ? dataLines.Max(l => l.RowNumber) : 0
         };
     }
 

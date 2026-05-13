@@ -18,6 +18,7 @@ public sealed class PdfTableLayout
     public bool HasOriginalDataRows { get; set; } = true;
     public bool IsLandscapeTable { get; set; }
     public bool HasVisibleColumnHeader { get; set; }
+    public int MaxOriginalRowIndex { get; set; }
 
     public double NextRowTop => LastDataRowTop + RowHeight;
     public double FooterCoverTop => Math.Max(LastDataRowTop, NextRowTop - 4.0);
@@ -85,6 +86,7 @@ public sealed class PdfTableLayout
             HasOriginalDataRows = HasOriginalDataRows,
             IsLandscapeTable = IsLandscapeTable,
             HasVisibleColumnHeader = HasVisibleColumnHeader,
+            MaxOriginalRowIndex = MaxOriginalRowIndex,
             ColumnLefts = (double[])ColumnLefts.Clone(),
             ColumnRights = (double[])ColumnRights.Clone()
         };
