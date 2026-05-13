@@ -519,13 +519,6 @@ public sealed class PdfAppendService
 
     private static double MeasureRowHeight(XGraphics gfx, PdfTableLayout layout, ShipmentRow row, XFont font)
     {
-        // If the source already has original portrait data rows, appended rows
-        // must keep the original row cadence. Header-only sources still need the
-        // old wrapping behavior so long Amazon reference strings do not spill into
-        // neighboring columns on continuation pages.
-        if (!layout.IsLandscapeTable && layout.HasOriginalDataRows)
-            return layout.RowHeight;
-
         var values = RowValues(row);
         var maxLines = 1;
         for (int i = 1; i < values.Length; i++)
@@ -562,8 +555,6 @@ public sealed class PdfAppendService
             var font = i == 0 ? indexFont : normalFont;
             if (i == 0)
                 DrawSingleLineText(gfx, values[i], font, brush, rect);
-            else if (!layout.IsLandscapeTable && layout.HasOriginalDataRows)
-                DrawSingleLineFittedText(gfx, values[i], font, brush, rect);
             else
                 DrawCellText(gfx, values[i], font, brush, rect);
         }
@@ -632,15 +623,12 @@ public sealed class PdfAppendService
         var width = gfx.MeasureString(trimmed, fittedFont).Width;
         if (width > rect.Width)
         {
-            var fittedSize = Math.Max(3.0, font.Size * rect.Width / Math.Max(1.0, width));
+            var fittedSize = Math.Max(4.5, font.Size * rect.Width / Math.Max(1.0, width));
             fittedFont = new XFont("Arial", fittedSize, XFontStyleEx.Regular);
         }
 
         var y = rect.Y + Math.Max(0, (rect.Height - fittedFont.Size) / 2.0) + fittedFont.Size - 1.0;
-        var state = gfx.Save();
-        gfx.IntersectClip(rect);
         gfx.DrawString(trimmed, fittedFont, brush, new XPoint(rect.X, y));
-        gfx.Restore(state);
     }
 
     private static void DrawCellText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
