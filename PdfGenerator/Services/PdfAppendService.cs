@@ -189,6 +189,7 @@ public sealed class PdfAppendService
     // A previous version omitted the ARN anchor, which shifted Excel PRO/FBA values into
     // the BOL column and made appended data appear in the wrong positions.
     private static readonly double[] LandscapeTextXs = { 58.82, 90.80, 119.86, 228.50, 418.47, 473.47, 532.75, 595.39, 651.00 };
+    private const double LandscapeIndexHorizontalScale = 1.18;
 
     private static void ResizeLandscapePage(PdfPage page)
     {
@@ -237,9 +238,24 @@ public sealed class PdfAppendService
         for (var i = 0; i < values.Length; i++)
         {
             if (string.IsNullOrWhiteSpace(values[i])) continue;
-            var font = i == 0 ? indexFont : bodyFont;
-            gfx.DrawString(values[i], font, textBrush, new XPoint(LandscapeTextXs[i], top + 9.55));
+            if (i == 0)
+                DrawLandscapeIndex(gfx, values[i], indexFont, textBrush, LandscapeTextXs[i], top + 9.55);
+            else
+                gfx.DrawString(values[i], bodyFont, textBrush, new XPoint(LandscapeTextXs[i], top + 9.55));
         }
+    }
+
+    private static void DrawLandscapeIndex(XGraphics gfx, string text, XFont font, XBrush brush, double x, double y)
+    {
+        // Amazon's original landscape row numbers are embedded Type3 glyphs: the
+        // height matches a 9.2pt Arial-like font, but the digits are wider. Stretch
+        // only the generated index text horizontally so the sequence column matches
+        // the source without changing font height, row geometry, or other columns.
+        var state = gfx.Save();
+        gfx.TranslateTransform(x, y);
+        gfx.ScaleTransform(LandscapeIndexHorizontalScale, 1.0);
+        gfx.DrawString(text, font, brush, new XPoint(0, 0));
+        gfx.Restore(state);
     }
 
     private static string TruncateLandscapeValue(int columnIndex, string value)
