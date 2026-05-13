@@ -503,10 +503,11 @@ public sealed class PdfAppendService
 
     private static double MeasureRowHeight(XGraphics gfx, PdfTableLayout layout, ShipmentRow row, XFont font)
     {
-        // If the source already has a visible portrait Amazon table, appended rows
-        // must keep the original row cadence. Wrapping generated values can enlarge
-        // rows and make the new block visibly misaligned with the original rows.
-        if (!layout.IsLandscapeTable && (layout.HasOriginalDataRows || layout.HasVisibleColumnHeader))
+        // If the source already has original portrait data rows, appended rows
+        // must keep the original row cadence. Header-only sources still need the
+        // old wrapping behavior so long Amazon reference strings do not spill into
+        // neighboring columns on continuation pages.
+        if (!layout.IsLandscapeTable && layout.HasOriginalDataRows)
             return layout.RowHeight;
 
         var values = RowValues(row);
@@ -545,7 +546,7 @@ public sealed class PdfAppendService
             var font = i == 0 ? indexFont : normalFont;
             if (i == 0)
                 DrawSingleLineText(gfx, values[i], font, brush, rect);
-            else if (!layout.IsLandscapeTable && (layout.HasOriginalDataRows || layout.HasVisibleColumnHeader))
+            else if (!layout.IsLandscapeTable && layout.HasOriginalDataRows)
                 DrawSingleLineFittedText(gfx, values[i], font, brush, rect);
             else
                 DrawCellText(gfx, values[i], font, brush, rect);
