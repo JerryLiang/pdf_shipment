@@ -71,7 +71,10 @@ public sealed class PdfAppendService
         var sectionFont = new XFont("Arial", 9.5, XFontStyleEx.Bold);
         var textBrush = new XSolidBrush(XColor.FromArgb(32, 55, 59));
         var rowSeparatorPen = new XPen(XColor.FromArgb(221, 221, 221), 0.45);
-        var outerBorderPen = new XPen(XColor.FromArgb(136, 140, 140), 0.47);
+        // Amazon's portrait container side bars are very thin filled rectangles.
+        // Draw them as source-matched fills instead of stroked lines so generated
+        // continuation bars do not look offset or thicker at the old/new seam.
+        var outerBorderBrush = new XSolidBrush(XColor.FromArgb(136, 140, 140));
 
         XGraphics gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
         var isFirstAppendPage = true;
@@ -86,7 +89,7 @@ public sealed class PdfAppendService
             else
             {
                 CoverNoTableShipmentArea(gfx, layout);
-                DrawShipmentTableHeader(gfx, layout, sectionFont, headerFont, textBrush, rowSeparatorPen, outerBorderPen);
+                DrawShipmentTableHeader(gfx, layout, sectionFont, headerFont, textBrush, rowSeparatorPen, outerBorderBrush);
             }
 
             foreach (var row in numberedRows)
@@ -94,7 +97,7 @@ public sealed class PdfAppendService
                 var rowHeight = MeasureRowHeight(gfx, layout, row, normalFont);
                 if (currentY + rowHeight > currentPageBottomMargin)
                 {
-                    DrawPageBreakContinuation(gfx, layout, currentY, currentPageBottomMargin, outerBorderPen, rowSeparatorPen, isFirstAppendPage);
+                    DrawPageBreakContinuation(gfx, layout, currentY, currentPageBottomMargin, outerBorderBrush, rowSeparatorPen, isFirstAppendPage);
                     gfx.Dispose();
                     page = AddContinuationPage(document, layout);
                     gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
@@ -110,7 +113,7 @@ public sealed class PdfAppendService
 
             if (layout.HasShipmentTable)
                 ScrubRightEditButtonArea(gfx, layout);
-            DrawOuterContainerExtension(gfx, layout, currentY, outerBorderPen, isFirstAppendPage);
+            DrawOuterContainerExtension(gfx, layout, currentY, outerBorderBrush, isFirstAppendPage);
         }
         finally
         {
@@ -118,6 +121,7 @@ public sealed class PdfAppendService
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+        RemoveBrowserFooterPageNumbers(document);
         document.Save(outputPath);
     }
 
@@ -170,6 +174,7 @@ public sealed class PdfAppendService
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+        RemoveBrowserFooterPageNumbers(document);
         document.Save(outputPath);
     }
 
@@ -258,6 +263,21 @@ public sealed class PdfAppendService
         return page;
     }
 
+    private static void RemoveBrowserFooterPageNumbers(PdfDocument document)
+    {
+        var whiteBrush = new XSolidBrush(XColors.White);
+        foreach (var page in document.Pages)
+        {
+            using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
+            var width = page.Width.Point;
+            var height = page.Height.Point;
+            // Chrome/PDF browser footer page numbers such as "1/6" sit in the
+            // bottom-right corner. Preserve the left footer URL by clearing only
+            // the narrow right corner region.
+            gfx.DrawRectangle(whiteBrush, Math.Max(0, width - 58.0), Math.Max(0, height - 28.0), 54.0, 18.0);
+        }
+    }
+
     private static double ResizePageToLayout(PdfPage page, PdfTableLayout layout, double? topAnchor = null)
     {
         var pageY = topAnchor.HasValue ? topAnchor.Value - layout.PageHeight : 0;
@@ -300,7 +320,7 @@ public sealed class PdfAppendService
         XFont headerFont,
         XBrush textBrush,
         XPen rowSeparatorPen,
-        XPen outerBorderPen)
+        XBrush outerBorderBrush)
     {
         var headerY = layout.HeaderTop;
         var sectionY = Math.Max(20.0, headerY - 22.0);
@@ -345,8 +365,8 @@ public sealed class PdfAppendService
         // the two outermost vertical lines.
         if (layout.HasOriginalDataRows)
         {
-            gfx.DrawLine(outerBorderPen, OuterLeft, sectionY - 14.0, OuterLeft, layout.FirstDataRowTop);
-            gfx.DrawLine(outerBorderPen, OuterRight, sectionY - 14.0, OuterRight, layout.FirstDataRowTop);
+            DrawOuterSideBar(gfx, OuterLeft, sectionY - 14.0, layout.FirstDataRowTop, outerBorderBrush);
+            DrawOuterSideBar(gfx, OuterRight, sectionY - 14.0, layout.FirstDataRowTop, outerBorderBrush);
         }
     }
 
@@ -366,6 +386,19 @@ public sealed class PdfAppendService
     private const double OuterLeft = 10.23;
     private const double OuterRight = 585.12;
     private const double OuterTop = 14.25;
+    private const double OuterBarWidth = 0.465;
+
+    private static void DrawOuterSideBar(XGraphics gfx, double x, double y1, double y2, XBrush brush)
+    {
+        if (y2 <= y1) return;
+
+        // Source PDFs encode these outside bars as thin filled rectangles:
+        // left x=10.233..10.698 and right x=584.652..585.117.
+        // Keeping that geometry avoids a visible step where generated rows begin.
+        var left = Math.Abs(x - OuterRight) < 0.01 ? OuterRight - OuterBarWidth : x;
+        gfx.DrawRectangle(brush, left, y1, OuterBarWidth, y2 - y1);
+    }
+
 
     private static void RemoveEditAnnotations(PdfPage page)
     {
@@ -417,14 +450,14 @@ public sealed class PdfAppendService
         gfx.DrawRectangle(whiteBrush, x, y, width, height);
     }
 
-    private static void DrawOuterContainerExtension(XGraphics gfx, PdfTableLayout layout, double tableEndY, XPen outerBorderPen, bool isFirstAppendPage)
+    private static void DrawOuterContainerExtension(XGraphics gfx, PdfTableLayout layout, double tableEndY, XBrush outerBorderBrush, bool isFirstAppendPage)
     {
         var startY = layout.HasShipmentTable
             ? (isFirstAppendPage
                 // Header-only portrait sources already have a visible table header.
-                // Do not redraw/extend the outside card bars upward through source content;
-                // connect them only from the first generated data row downward.
-                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? layout.FirstDataRowTop : layout.FooterCoverTop)
+                // Match the source container by connecting the side bars from the
+                // visible header/card top, not from the first generated data row.
+                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? layout.HeaderTop : layout.FooterCoverTop)
                 : OuterTop)
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
         var endY = Math.Max(startY, tableEndY + 0.4);
@@ -432,9 +465,9 @@ public sealed class PdfAppendService
         if (SuppressOuterContainerForEmptyTable(layout))
             return;
 
-        gfx.DrawLine(outerBorderPen, OuterLeft, startY, OuterLeft, endY);
-        gfx.DrawLine(outerBorderPen, OuterRight, startY, OuterRight, endY);
-        gfx.DrawLine(outerBorderPen, OuterLeft, endY, OuterRight, endY);
+        DrawOuterSideBar(gfx, OuterLeft, startY, endY, outerBorderBrush);
+        DrawOuterSideBar(gfx, OuterRight, startY, endY, outerBorderBrush);
+        gfx.DrawRectangle(outerBorderBrush, OuterLeft, endY - OuterBarWidth, OuterRight - OuterLeft, OuterBarWidth);
     }
 
     private static void DrawPageBreakContinuation(
@@ -442,13 +475,13 @@ public sealed class PdfAppendService
         PdfTableLayout layout,
         double tableEndY,
         double pageBreakY,
-        XPen outerBorderPen,
+        XBrush outerBorderBrush,
         XPen rowSeparatorPen,
         bool isFirstAppendPage)
     {
         var outerStartY = layout.HasShipmentTable
             ? (isFirstAppendPage
-                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? layout.FirstDataRowTop : layout.FooterCoverTop)
+                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? layout.HeaderTop : layout.FooterCoverTop)
                 : OuterTop)
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
 
@@ -457,8 +490,8 @@ public sealed class PdfAppendService
         // then the next page continues with the same side-border style.
         if (!SuppressOuterContainerForEmptyTable(layout))
         {
-            gfx.DrawLine(outerBorderPen, OuterLeft, outerStartY, OuterLeft, pageBreakY);
-            gfx.DrawLine(outerBorderPen, OuterRight, outerStartY, OuterRight, pageBreakY);
+            DrawOuterSideBar(gfx, OuterLeft, outerStartY, pageBreakY, outerBorderBrush);
+            DrawOuterSideBar(gfx, OuterRight, outerStartY, pageBreakY, outerBorderBrush);
         }
 
         if (tableEndY < pageBreakY && ShouldDrawTableSideBorders(layout))
@@ -470,6 +503,12 @@ public sealed class PdfAppendService
 
     private static double MeasureRowHeight(XGraphics gfx, PdfTableLayout layout, ShipmentRow row, XFont font)
     {
+        // If the source already has a visible portrait Amazon table, appended rows
+        // must keep the original row cadence. Wrapping generated values can enlarge
+        // rows and make the new block visibly misaligned with the original rows.
+        if (!layout.IsLandscapeTable && (layout.HasOriginalDataRows || layout.HasVisibleColumnHeader))
+            return layout.RowHeight;
+
         var values = RowValues(row);
         var maxLines = 1;
         for (int i = 1; i < values.Length; i++)
@@ -506,6 +545,8 @@ public sealed class PdfAppendService
             var font = i == 0 ? indexFont : normalFont;
             if (i == 0)
                 DrawSingleLineText(gfx, values[i], font, brush, rect);
+            else if (!layout.IsLandscapeTable && (layout.HasOriginalDataRows || layout.HasVisibleColumnHeader))
+                DrawSingleLineFittedText(gfx, values[i], font, brush, rect);
             else
                 DrawCellText(gfx, values[i], font, brush, rect);
         }
@@ -563,6 +604,23 @@ public sealed class PdfAppendService
 
         var y = rect.Y + Math.Max(0, (rect.Height - font.Size) / 2.0) + font.Size - 1.0;
         gfx.DrawString(text.Trim(), font, brush, new XPoint(rect.X, y));
+    }
+
+    private static void DrawSingleLineFittedText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        var trimmed = text.Trim();
+        var fittedFont = font;
+        var width = gfx.MeasureString(trimmed, fittedFont).Width;
+        if (width > rect.Width)
+        {
+            var fittedSize = Math.Max(4.5, font.Size * rect.Width / Math.Max(1.0, width));
+            fittedFont = new XFont("Arial", fittedSize, XFontStyleEx.Regular);
+        }
+
+        var y = rect.Y + Math.Max(0, (rect.Height - fittedFont.Size) / 2.0) + fittedFont.Size - 1.0;
+        gfx.DrawString(trimmed, fittedFont, brush, new XPoint(rect.X, y));
     }
 
     private static void DrawCellText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
