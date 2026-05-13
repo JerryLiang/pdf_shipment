@@ -119,9 +119,11 @@ public sealed class PdfTableLayoutAnalyzer
         var hasShipmentTable = dataLines.Count > 0 || sawColumnHeader;
         var defaultFirstDataTop = isLandscapeTable
             ? (dataLines.Count > 0 ? 27.75 : 56.52)
-            : hasShipmentTable
-                ? (firstShipmentPageIndex >= 0 ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop) : DefaultFirstDataRowTop)
-                : (firstShipmentPageIndex >= 0 ? headerTop + 24.0 : DefaultFirstDataRowTop);
+            : sawColumnHeader
+                ? columnHeaderTop + 25.0
+                : hasShipmentTable
+                    ? (firstShipmentPageIndex >= 0 ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop) : DefaultFirstDataRowTop)
+                    : (firstShipmentPageIndex >= 0 ? headerTop + 24.0 : DefaultFirstDataRowTop);
         var lastDataTop = lastDataLine?.Top ?? (hasShipmentTable ? defaultFirstDataTop : defaultFirstDataTop - rowHeight);
 
         return new PdfTableLayout
@@ -131,7 +133,7 @@ public sealed class PdfTableLayoutAnalyzer
             PageHeight = pageForLayout.Height,
             TableLeft = isLandscapeTable ? 51.916 : DefaultTableLeft,
             TableRight = isLandscapeTable ? 740.084 : Math.Min(DefaultTableRight, pageForLayout.Width - 16.0),
-            HeaderTop = isLandscapeTable ? columnHeaderTop : headerTop,
+            HeaderTop = sawColumnHeader ? columnHeaderTop : headerTop,
             HeaderHeight = isLandscapeTable ? 28.77 : 24.0,
             FirstDataRowTop = pageDataLines.FirstOrDefault()?.Top ?? defaultFirstDataTop,
             LastDataRowTop = lastDataTop,

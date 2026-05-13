@@ -41,9 +41,10 @@ public sealed class PdfAppendService
         }
 
         var page = document.Pages[Math.Min(layout.PageIndex, document.PageCount - 1)];
-        var currentY = layout.NextRowTop;
+        var headerOnlyVisibleTable = layout.HasVisibleColumnHeader && !layout.HasOriginalDataRows;
+        var currentY = headerOnlyVisibleTable ? layout.FirstDataRowTop : layout.NextRowTop;
         var currentPageBottomMargin = layout.BottomMargin;
-        if (!layout.HasShipmentTable)
+        if (!layout.HasShipmentTable || headerOnlyVisibleTable)
         {
             var requiredStart = layout.HeaderTop + layout.HeaderHeight + layout.RowHeight;
             if (requiredStart > layout.BottomMargin || layout.PageHeight < 800.0)
@@ -380,7 +381,9 @@ public sealed class PdfAppendService
         // rows, otherwise the old card border cuts through the new table data.
         // Different PDFs can end at very different Y positions, so do not use a
         // fixed template coordinate here; derive it from the detected last row.
-        var coverTop = layout.FooterCoverTop;
+        var coverTop = (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader)
+            ? Math.Max(0, layout.HeaderTop + layout.HeaderHeight - 1.0)
+            : layout.FooterCoverTop;
         var coverHeight = Math.Max(0, layout.PageHeight - coverTop);
         gfx.DrawRectangle(whiteBrush, OuterLeft - 2.0, coverTop, OuterRight - OuterLeft + 4.0, coverHeight);
     }
@@ -409,7 +412,9 @@ public sealed class PdfAppendService
     private static void DrawOuterContainerExtension(XGraphics gfx, PdfTableLayout layout, double tableEndY, XPen outerBorderPen, bool isFirstAppendPage)
     {
         var startY = layout.HasShipmentTable
-            ? (isFirstAppendPage ? layout.FooterCoverTop : OuterTop)
+            ? (isFirstAppendPage
+                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? OuterTop : layout.FooterCoverTop)
+                : OuterTop)
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
         var endY = Math.Max(startY, tableEndY + 0.4);
 
@@ -431,7 +436,9 @@ public sealed class PdfAppendService
         bool isFirstAppendPage)
     {
         var outerStartY = layout.HasShipmentTable
-            ? (isFirstAppendPage ? layout.FooterCoverTop : OuterTop)
+            ? (isFirstAppendPage
+                ? (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader ? OuterTop : layout.FooterCoverTop)
+                : OuterTop)
             : Math.Max(OuterTop, layout.HeaderTop - 36.0);
 
         // At a page break the Amazon PDF does not close the table/card with a
@@ -511,8 +518,9 @@ public sealed class PdfAppendService
 
     private static void DrawRowSeparator(XGraphics gfx, PdfTableLayout layout, double y, double height, XPen rowSeparatorPen)
     {
-        // Match the source table: keep horizontal row separators and only draw
-        // table outside vertical borders when the source body already had them.
+        // Match the source table: keep horizontal row separators and draw the
+        // outside table vertical borders when the source already had body rows or
+        // a visible column header that should continue into generated rows.
         if (ShouldDrawTableSideBorders(layout))
         {
             gfx.DrawLine(rowSeparatorPen, layout.TableLeft, y, layout.TableLeft, y + height);
@@ -523,14 +531,12 @@ public sealed class PdfAppendService
 
     private static bool ShouldDrawTableSideBorders(PdfTableLayout layout)
     {
-        // Empty source tables should not introduce the two outermost vertical
-        // lines around the generated data/header body.
-        return layout.HasOriginalDataRows;
+        return layout.HasOriginalDataRows || layout.HasVisibleColumnHeader;
     }
 
     private static bool SuppressOuterContainerForEmptyTable(PdfTableLayout layout)
     {
-        return !layout.HasOriginalDataRows;
+        return !layout.HasOriginalDataRows && !layout.HasVisibleColumnHeader;
     }
 
     private static XRect CellRect(PdfTableLayout layout, int columnIndex, double y, double height, double padX, double padY)
