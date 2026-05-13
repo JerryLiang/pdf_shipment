@@ -632,12 +632,15 @@ public sealed class PdfAppendService
         var width = gfx.MeasureString(trimmed, fittedFont).Width;
         if (width > rect.Width)
         {
-            var fittedSize = Math.Max(4.5, font.Size * rect.Width / Math.Max(1.0, width));
+            var fittedSize = Math.Max(3.0, font.Size * rect.Width / Math.Max(1.0, width));
             fittedFont = new XFont("Arial", fittedSize, XFontStyleEx.Regular);
         }
 
         var y = rect.Y + Math.Max(0, (rect.Height - fittedFont.Size) / 2.0) + fittedFont.Size - 1.0;
+        var state = gfx.Save();
+        gfx.IntersectClip(rect);
         gfx.DrawString(trimmed, fittedFont, brush, new XPoint(rect.X, y));
+        gfx.Restore(state);
     }
 
     private static void DrawCellText(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect)
