@@ -141,31 +141,41 @@ public sealed class PdfAppendService
         var gridBrush = new XSolidBrush(XColor.FromArgb(213, 217, 217));
         var darkBrush = new XSolidBrush(XColor.FromArgb(136, 140, 140));
 
-        var startY = layout.HasOriginalDataRows ? layout.NextRowTop : 56.52;
-        var currentPageStartY = startY;
+        var currentPageStartY = layout.HasOriginalDataRows ? layout.NextRowTop : 56.52;
         var rowIndex = 0;
 
         while (rowIndex < rows.Count)
         {
+            var pageHasMoreRows = false;
             using (var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append))
             {
-                var capacity = Math.Max(1, (int)Math.Floor((LandscapeBottom - currentPageStartY) / LandscapeRowHeight));
-                var rowsOnPage = Math.Min(capacity, rows.Count - rowIndex);
-
                 // Header-only landscape PDFs can have hidden/stale body rows below a short CropBox.
                 // Clear the body area before drawing the authoritative appended rows.
                 gfx.DrawRectangle(whiteBrush, 0, currentPageStartY, LandscapePageWidth, LandscapeBottom - currentPageStartY + 1.0);
-                DrawLandscapeGrid(gfx, currentPageStartY, rowsOnPage, rowsOnPage == capacity, gridBrush, darkBrush, whiteBrush);
 
-                for (var i = 0; i < rowsOnPage; i++)
+                var currentY = currentPageStartY;
+                var firstRowOnPage = true;
+                while (rowIndex < rows.Count)
                 {
-                    DrawLandscapeRow(gfx, rows[rowIndex + i], currentPageStartY + i * LandscapeRowHeight, indexFont, bodyFont, textBrush);
+                    var rowHeight = MeasureLandscapeRowHeight(gfx, rows[rowIndex], bodyFont);
+                    if (!firstRowOnPage && currentY + rowHeight > LandscapeBottom)
+                    {
+                        pageHasMoreRows = true;
+                        break;
+                    }
+
+                    rowHeight = Math.Min(rowHeight, LandscapeBottom - currentY);
+                    DrawLandscapeRowBackgroundAndSeparator(gfx, currentY, rowHeight, gridBrush, whiteBrush);
+                    DrawLandscapeRow(gfx, rows[rowIndex], currentY, rowHeight, indexFont, bodyFont, textBrush);
+                    currentY += rowHeight;
+                    rowIndex++;
+                    firstRowOnPage = false;
                 }
 
-                rowIndex += rowsOnPage;
+                DrawLandscapeFrame(gfx, currentPageStartY, pageHasMoreRows ? LandscapeBottom : currentY, pageHasMoreRows, gridBrush, darkBrush);
             }
 
-            if (rowIndex >= rows.Count)
+            if (!pageHasMoreRows)
                 break;
 
             page = document.AddPage();
@@ -203,27 +213,24 @@ public sealed class PdfAppendService
         page.ArtBox = rect;
     }
 
-    private static void DrawLandscapeGrid(XGraphics gfx, double startY, int rowCount, bool fullPage, XBrush gridBrush, XBrush darkBrush, XBrush whiteBrush)
+    private static void DrawLandscapeRowBackgroundAndSeparator(XGraphics gfx, double top, double rowHeight, XBrush gridBrush, XBrush whiteBrush)
     {
-        var endY = fullPage ? LandscapeBottom : Math.Min(LandscapeBottom, startY + rowCount * LandscapeRowHeight);
-
-        for (var row = 0; row < rowCount; row++)
+        var bottom = Math.Min(LandscapeBottom, top + rowHeight);
+        for (var col = 0; col < LandscapeColumnLefts.Length; col++)
         {
-            var y = startY + row * LandscapeRowHeight;
-            var y2 = Math.Min(LandscapeBottom, y + LandscapeRowHeight);
-            for (var col = 0; col < LandscapeColumnLefts.Length; col++)
-            {
-                gfx.DrawRectangle(whiteBrush, LandscapeColumnLefts[col], y, LandscapeColumnRights[col] - LandscapeColumnLefts[col], y2 - y);
-                gfx.DrawRectangle(gridBrush, LandscapeColumnLefts[col], y2 - 0.58, LandscapeColumnRights[col] - LandscapeColumnLefts[col], 0.58);
-            }
+            gfx.DrawRectangle(whiteBrush, LandscapeColumnLefts[col], top, LandscapeColumnRights[col] - LandscapeColumnLefts[col], bottom - top);
+            gfx.DrawRectangle(gridBrush, LandscapeColumnLefts[col], bottom - 0.58, LandscapeColumnRights[col] - LandscapeColumnLefts[col], 0.58);
         }
+    }
 
+    private static void DrawLandscapeFrame(XGraphics gfx, double startY, double endY, bool fullPage, XBrush gridBrush, XBrush darkBrush)
+    {
         // Original landscape PDFs have both a thin light table edge and an outside dark bar.
         // Match the rendered source weight; do not invent thicker bars or internal grid lines.
         gfx.DrawRectangle(darkBrush, 40.25, LandscapeTop, 0.70, endY - LandscapeTop);
         gfx.DrawRectangle(darkBrush, 751.00, LandscapeTop, 0.50, endY - LandscapeTop);
-        gfx.DrawRectangle(gridBrush, 51.341, LandscapeTop, 0.58, endY - LandscapeTop);
-        gfx.DrawRectangle(gridBrush, 740.084, LandscapeTop, 0.58, endY - LandscapeTop);
+        gfx.DrawRectangle(gridBrush, 51.341, startY, 0.58, endY - startY);
+        gfx.DrawRectangle(gridBrush, 740.084, startY, 0.58, endY - startY);
 
         if (!fullPage)
         {
@@ -232,17 +239,50 @@ public sealed class PdfAppendService
         }
     }
 
-    private static void DrawLandscapeRow(XGraphics gfx, ShipmentRow row, double top, XFont indexFont, XFont bodyFont, XBrush textBrush)
+    private static double MeasureLandscapeRowHeight(XGraphics gfx, ShipmentRow row, XFont bodyFont)
     {
-        var values = RowValues(row).Select((value, i) => TruncateLandscapeValue(i, value)).ToArray();
+        var values = RowValues(row);
+        var maxLines = 1;
+        for (var i = 1; i < values.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(values[i])) continue;
+            maxLines = Math.Max(maxLines, WrapText(gfx, values[i].Trim(), bodyFont, LandscapeCellTextWidth(i)).Count);
+        }
+
+        if (maxLines <= 1) return LandscapeRowHeight;
+        var lineHeight = bodyFont.Size + 1.35;
+        return Math.Max(LandscapeRowHeight, 5.6 + maxLines * lineHeight);
+    }
+
+    private static void DrawLandscapeRow(XGraphics gfx, ShipmentRow row, double top, double rowHeight, XFont indexFont, XFont bodyFont, XBrush textBrush)
+    {
+        var values = RowValues(row);
         for (var i = 0; i < values.Length; i++)
         {
             if (string.IsNullOrWhiteSpace(values[i])) continue;
             if (i == 0)
                 DrawLandscapeIndex(gfx, values[i], indexFont, textBrush, LandscapeTextXs[i], top + 9.55);
             else
-                gfx.DrawString(values[i], bodyFont, textBrush, new XPoint(LandscapeTextXs[i], top + 9.55));
+                DrawLandscapeWrappedCell(gfx, values[i], bodyFont, textBrush, i, top, rowHeight);
         }
+    }
+
+    private static void DrawLandscapeWrappedCell(XGraphics gfx, string text, XFont font, XBrush brush, int columnIndex, double top, double rowHeight)
+    {
+        var lines = WrapText(gfx, text.Trim(), font, LandscapeCellTextWidth(columnIndex));
+        var lineHeight = font.Size + 1.35;
+        var totalHeight = lines.Count * lineHeight;
+        var y = top + Math.Max(0, (rowHeight - totalHeight) / 2.0) + font.Size;
+        foreach (var line in lines)
+        {
+            gfx.DrawString(line, font, brush, new XPoint(LandscapeTextXs[columnIndex], y));
+            y += lineHeight;
+        }
+    }
+
+    private static double LandscapeCellTextWidth(int columnIndex)
+    {
+        return Math.Max(1.0, LandscapeColumnRights[columnIndex] - LandscapeTextXs[columnIndex] - 4.0);
     }
 
     private static void DrawLandscapeIndex(XGraphics gfx, string text, XFont font, XBrush brush, double x, double y)
@@ -256,20 +296,6 @@ public sealed class PdfAppendService
         gfx.ScaleTransform(LandscapeIndexHorizontalScale, 1.0);
         gfx.DrawString(text, font, brush, new XPoint(0, 0));
         gfx.Restore(state);
-    }
-
-    private static string TruncateLandscapeValue(int columnIndex, string value)
-    {
-        var limit = columnIndex switch
-        {
-            1 => 14,
-            2 => 18,
-            3 => 16,
-            4 => 10,
-            8 => 12,
-            _ => int.MaxValue
-        };
-        return value.Length > limit ? value[..limit] : value;
     }
 
     private static PdfPage AddContinuationPage(PdfDocument document, PdfTableLayout layout)
