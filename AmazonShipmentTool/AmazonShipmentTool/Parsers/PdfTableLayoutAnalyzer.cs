@@ -22,7 +22,9 @@ public sealed class PdfTableLayoutAnalyzer
 
         var dataLines = new List<DataLine>();
         var firstShipmentPageIndex = -1;
+        var columnHeaderPageIndex = -1;
         var headerTop = 454.0;
+        var columnHeaderTop = 454.0;
         var sawShipmentSectionLabel = false;
         var sawColumnHeader = false;
 
@@ -57,9 +59,14 @@ public sealed class PdfTableLayoutAnalyzer
                      text.Contains("BOL/Vendor", StringComparison.OrdinalIgnoreCase) ||
                      text.Contains("Pallet Count", StringComparison.OrdinalIgnoreCase) ||
                      text.Contains("PO List", StringComparison.OrdinalIgnoreCase) ||
-                     (text.Equals("ARN", StringComparison.OrdinalIgnoreCase) && x > 35 && x < 80)))
+                     (text.Equals("ARN", StringComparison.OrdinalIgnoreCase) && x > 35 && x < 110)))
                 {
                     sawColumnHeader = true;
+                    if (columnHeaderPageIndex < 0)
+                    {
+                        columnHeaderPageIndex = page.Number - 1;
+                        columnHeaderTop = Math.Max(0.0, yTop - 5.0);
+                    }
                 }
 
                 if (sawColumnHeader && x < 40)
@@ -88,6 +95,10 @@ public sealed class PdfTableLayoutAnalyzer
         {
             pageIndex = lastDataLine.PageIndex;
         }
+        else if (columnHeaderPageIndex >= 0)
+        {
+            pageIndex = columnHeaderPageIndex;
+        }
         else if (firstShipmentPageIndex >= 0)
         {
             pageIndex = firstShipmentPageIndex;
@@ -99,11 +110,14 @@ public sealed class PdfTableLayoutAnalyzer
             .OrderBy(l => l.Top)
             .ToList();
 
-        var rowHeight = EstimateRowHeight(pageDataLines);
+        var isLandscapeTable = sawColumnHeader && pageForLayout.Width > pageForLayout.Height;
+        var rowHeight = isLandscapeTable ? 21.289 : EstimateRowHeight(pageDataLines);
         var hasShipmentTable = dataLines.Count > 0 || sawColumnHeader;
-        var defaultFirstDataTop = hasShipmentTable
-            ? (firstShipmentPageIndex >= 0 ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop) : DefaultFirstDataRowTop)
-            : (firstShipmentPageIndex >= 0 ? headerTop + 24.0 : DefaultFirstDataRowTop);
+        var defaultFirstDataTop = isLandscapeTable
+            ? (dataLines.Count > 0 ? 27.75 : 56.52)
+            : hasShipmentTable
+                ? (firstShipmentPageIndex >= 0 ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop) : DefaultFirstDataRowTop)
+                : (firstShipmentPageIndex >= 0 ? headerTop + 24.0 : DefaultFirstDataRowTop);
         var lastDataTop = lastDataLine?.Top ?? (hasShipmentTable ? defaultFirstDataTop : defaultFirstDataTop - rowHeight);
 
         return new PdfTableLayout
@@ -111,17 +125,19 @@ public sealed class PdfTableLayoutAnalyzer
             PageIndex = pageIndex,
             PageWidth = pageForLayout.Width,
             PageHeight = pageForLayout.Height,
-            TableLeft = DefaultTableLeft,
-            TableRight = Math.Min(DefaultTableRight, pageForLayout.Width - 16.0),
-            HeaderTop = headerTop,
-            HeaderHeight = 24.0,
+            TableLeft = isLandscapeTable ? 51.916 : DefaultTableLeft,
+            TableRight = isLandscapeTable ? 740.084 : Math.Min(DefaultTableRight, pageForLayout.Width - 16.0),
+            HeaderTop = isLandscapeTable ? columnHeaderTop : headerTop,
+            HeaderHeight = isLandscapeTable ? 28.77 : 24.0,
             FirstDataRowTop = pageDataLines.FirstOrDefault()?.Top ?? defaultFirstDataTop,
             LastDataRowTop = lastDataTop,
             RowHeight = rowHeight,
-            BottomMargin = Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0),
+            BottomMargin = isLandscapeTable ? 584.153 : Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0),
             HasShipmentTable = hasShipmentTable,
             HasShipmentInfoLabel = sawShipmentSectionLabel,
-            HasOriginalDataRows = dataLines.Count > 0
+            HasOriginalDataRows = dataLines.Count > 0,
+            IsLandscapeTable = isLandscapeTable,
+            HasVisibleColumnHeader = sawColumnHeader
         };
     }
 

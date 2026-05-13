@@ -16,6 +16,8 @@ public sealed class PdfTableLayout
     public bool HasShipmentTable { get; set; } = true;
     public bool HasShipmentInfoLabel { get; set; } = true;
     public bool HasOriginalDataRows { get; set; } = true;
+    public bool IsLandscapeTable { get; set; }
+    public bool HasVisibleColumnHeader { get; set; }
 
     public double NextRowTop => LastDataRowTop + RowHeight;
     public double FooterCoverTop => Math.Max(LastDataRowTop, NextRowTop - 4.0);
@@ -81,6 +83,8 @@ public sealed class PdfTableLayout
             HasShipmentTable = false,
             HasShipmentInfoLabel = HasShipmentInfoLabel,
             HasOriginalDataRows = HasOriginalDataRows,
+            IsLandscapeTable = IsLandscapeTable,
+            HasVisibleColumnHeader = HasVisibleColumnHeader,
             ColumnLefts = (double[])ColumnLefts.Clone(),
             ColumnRights = (double[])ColumnRights.Clone()
         };
