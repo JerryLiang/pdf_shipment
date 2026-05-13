@@ -110,7 +110,11 @@ public sealed class PdfTableLayoutAnalyzer
             .OrderBy(l => l.Top)
             .ToList();
 
-        var isLandscapeTable = sawColumnHeader && pageForLayout.Width > pageForLayout.Height;
+        // A cropped portrait Amazon PDF may report a short CropBox such as
+        // 594x476, so width > height even though the original MediaBox/template is
+        // portrait. Treat only the true wide Carrier Central table as landscape.
+        // Observed landscape exports are ~792pt wide; portrait exports are ~595pt.
+        var isLandscapeTable = sawColumnHeader && pageForLayout.Width > 700.0 && pageForLayout.Width > pageForLayout.Height;
         var rowHeight = isLandscapeTable ? 21.289 : EstimateRowHeight(pageDataLines);
         var hasShipmentTable = dataLines.Count > 0 || sawColumnHeader;
         var defaultFirstDataTop = isLandscapeTable
