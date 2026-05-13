@@ -48,15 +48,13 @@ public sealed class PdfAppendService
             var requiredStart = layout.HeaderTop + layout.HeaderHeight + layout.RowHeight;
             if (requiredStart > layout.BottomMargin || layout.PageHeight < 800.0)
             {
-                var pageTopAnchor = Math.Max(page.CropBox.Y1, page.CropBox.Y2);
                 layout.NormalizeToA4Portrait();
-                var pageY = ResizePageToLayout(page, layout, pageTopAnchor);
-                layout.OffsetVertical(-pageY);
-                // The expanded first page is anchored with a negative MediaBox Y.
-                // PDFsharp overlay coordinates must use that shifted coordinate
-                // space for both drawing and pagination. Continuation pages are
-                // normal A4 pages, so only the first page gets this larger limit.
-                currentPageBottomMargin = layout.BottomMargin - pageY;
+                ResizePageToLayout(page, layout);
+                // Keep the expanded first page anchored at (0, 0). The source PDF's
+                // MediaBox is already A4; only the visible CropBox was short. Using
+                // a negative MediaBox/CropBox y-offset moves the original Amazon
+                // header out of view in some viewers after appending rows.
+                currentPageBottomMargin = layout.BottomMargin;
             }
             currentY = layout.FirstDataRowTop;
         }
