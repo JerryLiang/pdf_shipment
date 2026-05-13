@@ -1,0 +1,202 @@
+using System.Text.RegularExpressions;
+using AmazonShipmentTool.Models;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+
+namespace AmazonShipmentTool.Parsers;
+
+public sealed class PdfTableLayoutAnalyzer
+{
+    private const double DefaultTableLeft = 19.5;
+    private const double DefaultTableRight = 575.8;
+    private const double DefaultFirstDataRowTop = 479.0;
+    private const double DefaultRowHeight = 15.814;
+    private const double DefaultBottomMargin = 820.0;
+
+    public PdfTableLayout Analyze(string pdfPath)
+    {
+        using var document = PdfDocument.Open(pdfPath);
+        var pages = document.GetPages().ToList();
+        if (pages.Count == 0)
+            throw new InvalidOperationException("PDF does not contain any pages.");
+
+        var dataLines = new List<DataLine>();
+        var firstShipmentPageIndex = -1;
+        var columnHeaderPageIndex = -1;
+        var headerTop = 454.0;
+        var columnHeaderTop = 454.0;
+        var sawShipmentSectionLabel = false;
+        var sawColumnHeader = false;
+
+        foreach (var page in pages)
+        {
+            var lines = GroupLettersIntoLines(page.Letters.ToList(), tolerance: 2.0);
+            foreach (var line in lines)
+            {
+                var ordered = line.OrderBy(l => l.Location.X).ToList();
+                if (ordered.Count == 0) continue;
+
+                var text = string.Join("", ordered.Select(l => l.Value)).Trim();
+                var x = ordered[0].Location.X;
+                var yTop = ToTopY(page.Height, ordered);
+                if (!IsVisibleLine(page.Height, ordered, yTop))
+                    continue;
+
+                if (text.Contains("Shipment Information", StringComparison.OrdinalIgnoreCase) ||
+                    text.Equals("Shipment info", StringComparison.OrdinalIgnoreCase))
+                {
+                    firstShipmentPageIndex = page.Number - 1;
+                    // Place the shipment table below the section label with an
+                    // empty-line sized gap. A smaller offset makes the drawn
+                    // table overlap the appointment-info block on clipped PDFs
+                    // after their page boxes are expanded.
+                    headerTop = yTop + 29.0;
+                    sawShipmentSectionLabel = true;
+                }
+
+                if (sawShipmentSectionLabel &&
+                    (text.Contains("PRO/Carrier", StringComparison.OrdinalIgnoreCase) ||
+                     text.Contains("BOL/Vendor", StringComparison.OrdinalIgnoreCase) ||
+                     text.Contains("Pallet Count", StringComparison.OrdinalIgnoreCase) ||
+                     text.Contains("PO List", StringComparison.OrdinalIgnoreCase) ||
+                     (text.Equals("ARN", StringComparison.OrdinalIgnoreCase) && x > 35 && x < 110)))
+                {
+                    sawColumnHeader = true;
+                    if (columnHeaderPageIndex < 0)
+                    {
+                        columnHeaderPageIndex = page.Number - 1;
+                        columnHeaderTop = Math.Max(0.0, yTop - 5.0);
+                    }
+                }
+
+                if (sawColumnHeader && x < 40)
+                {
+                    var rowNumberText = string.Join("", ordered
+                        .Where(l => l.Location.X < 50)
+                        .OrderBy(l => l.Location.X)
+                        .Select(l => l.Value));
+                    var match = Regex.Match(rowNumberText, @"^\d+");
+                    if (match.Success && int.TryParse(match.Value, out var rowNumber))
+                    {
+                        dataLines.Add(new DataLine(page.Number - 1, rowNumber, yTop));
+                    }
+                }
+            }
+        }
+
+        var lastPage = pages[^1];
+        var pageIndex = pages.Count - 1;
+        var lastDataLine = dataLines
+            .OrderBy(l => l.RowNumber)
+            .ThenBy(l => l.PageIndex)
+            .LastOrDefault();
+
+        if (lastDataLine != null)
+        {
+            pageIndex = lastDataLine.PageIndex;
+        }
+        else if (columnHeaderPageIndex >= 0)
+        {
+            pageIndex = columnHeaderPageIndex;
+        }
+        else if (firstShipmentPageIndex >= 0)
+        {
+            pageIndex = firstShipmentPageIndex;
+        }
+
+        var pageForLayout = pages[pageIndex];
+        var pageDataLines = dataLines
+            .Where(l => l.PageIndex == pageIndex)
+            .OrderBy(l => l.Top)
+            .ToList();
+
+        var isLandscapeTable = sawColumnHeader && pageForLayout.Width > pageForLayout.Height;
+        var rowHeight = isLandscapeTable ? 21.289 : EstimateRowHeight(pageDataLines);
+        var hasShipmentTable = dataLines.Count > 0 || sawColumnHeader;
+        var defaultFirstDataTop = isLandscapeTable
+            ? (dataLines.Count > 0 ? 27.75 : 56.52)
+            : hasShipmentTable
+                ? (firstShipmentPageIndex >= 0 ? Math.Max(headerTop + 25.0, DefaultFirstDataRowTop) : DefaultFirstDataRowTop)
+                : (firstShipmentPageIndex >= 0 ? headerTop + 24.0 : DefaultFirstDataRowTop);
+        var lastDataTop = lastDataLine?.Top ?? (hasShipmentTable ? defaultFirstDataTop : defaultFirstDataTop - rowHeight);
+
+        return new PdfTableLayout
+        {
+            PageIndex = pageIndex,
+            PageWidth = pageForLayout.Width,
+            PageHeight = pageForLayout.Height,
+            TableLeft = isLandscapeTable ? 51.916 : DefaultTableLeft,
+            TableRight = isLandscapeTable ? 740.084 : Math.Min(DefaultTableRight, pageForLayout.Width - 16.0),
+            HeaderTop = isLandscapeTable ? columnHeaderTop : headerTop,
+            HeaderHeight = isLandscapeTable ? 28.77 : 24.0,
+            FirstDataRowTop = pageDataLines.FirstOrDefault()?.Top ?? defaultFirstDataTop,
+            LastDataRowTop = lastDataTop,
+            RowHeight = rowHeight,
+            BottomMargin = isLandscapeTable ? 584.153 : Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0),
+            HasShipmentTable = hasShipmentTable,
+            HasShipmentInfoLabel = sawShipmentSectionLabel,
+            HasOriginalDataRows = dataLines.Count > 0,
+            IsLandscapeTable = isLandscapeTable,
+            HasVisibleColumnHeader = sawColumnHeader
+        };
+    }
+
+    private static double EstimateRowHeight(List<DataLine> pageDataLines)
+    {
+        var gaps = pageDataLines
+            .Zip(pageDataLines.Skip(1), (a, b) => b.Top - a.Top)
+            .Where(g => g > 8 && g < 25)
+            .ToList();
+
+        if (gaps.Count == 0)
+            return DefaultRowHeight;
+
+        return gaps
+            .GroupBy(g => Math.Round(g, 1))
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key)
+            .First()
+            .Average();
+    }
+
+    private static double ToTopY(double pageHeight, List<Letter> line)
+    {
+        var maxBaselineY = line.Max(l => l.Location.Y);
+        return pageHeight - maxBaselineY - 10.0;
+    }
+
+    private static bool IsVisibleLine(double pageHeight, List<Letter> line, double yTop)
+    {
+        var maxBaselineY = line.Max(l => l.Location.Y);
+        return maxBaselineY >= 0 && yTop <= pageHeight;
+    }
+
+    private static List<List<Letter>> GroupLettersIntoLines(List<Letter> letters, double tolerance)
+    {
+        if (letters.Count == 0) return new List<List<Letter>>();
+
+        var sorted = letters.OrderByDescending(l => l.Location.Y).ToList();
+        var lines = new List<List<Letter>>();
+        var currentLine = new List<Letter> { sorted[0] };
+        var currentY = sorted[0].Location.Y;
+
+        for (int i = 1; i < sorted.Count; i++)
+        {
+            if (Math.Abs(sorted[i].Location.Y - currentY) <= tolerance)
+            {
+                currentLine.Add(sorted[i]);
+            }
+            else
+            {
+                lines.Add(currentLine);
+                currentLine = new List<Letter> { sorted[i] };
+                currentY = sorted[i].Location.Y;
+            }
+        }
+
+        lines.Add(currentLine);
+        return lines;
+    }
+
+    private sealed record DataLine(int PageIndex, int RowNumber, double Top);
+}
