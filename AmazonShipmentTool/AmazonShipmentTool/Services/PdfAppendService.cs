@@ -154,6 +154,8 @@ public sealed class PdfAppendService
                 gfx.DrawRectangle(whiteBrush, 0, currentPageStartY, LandscapePageWidth, LandscapeBottom - currentPageStartY + 1.0);
 
                 var currentY = currentPageStartY;
+                if (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader)
+                    DrawLandscapeHeaderDataSeparator(gfx, currentY, gridBrush);
                 var firstRowOnPage = true;
                 while (rowIndex < rows.Count)
                 {
@@ -216,11 +218,16 @@ public sealed class PdfAppendService
     private static void DrawLandscapeRowBackgroundAndSeparator(XGraphics gfx, double top, double rowHeight, XBrush gridBrush, XBrush whiteBrush)
     {
         var bottom = Math.Min(LandscapeBottom, top + rowHeight);
-        for (var col = 0; col < LandscapeColumnLefts.Length; col++)
-        {
-            gfx.DrawRectangle(whiteBrush, LandscapeColumnLefts[col], top, LandscapeColumnRights[col] - LandscapeColumnLefts[col], bottom - top);
-            gfx.DrawRectangle(gridBrush, LandscapeColumnLefts[col], bottom - 0.58, LandscapeColumnRights[col] - LandscapeColumnLefts[col], 0.58);
-        }
+        gfx.DrawRectangle(whiteBrush, LandscapeColumnLefts[0], top, LandscapeColumnRights[^1] - LandscapeColumnLefts[0], bottom - top);
+        gfx.DrawRectangle(gridBrush, LandscapeColumnLefts[0], bottom - 0.58, LandscapeColumnRights[^1] - LandscapeColumnLefts[0], 0.58);
+    }
+
+    private static void DrawLandscapeHeaderDataSeparator(XGraphics gfx, double y, XBrush gridBrush)
+    {
+        // User-approved landscape standard: the table body has no internal vertical
+        // grid lines. Keep only horizontal separators plus the outside frame, and
+        // make the header/body seam clearly visible.
+        gfx.DrawRectangle(gridBrush, LandscapeColumnLefts[0], y - 0.78, LandscapeColumnRights[^1] - LandscapeColumnLefts[0], 0.78);
     }
 
     private static void DrawLandscapeFrame(XGraphics gfx, double startY, double endY, bool fullPage, XBrush gridBrush, XBrush darkBrush)
@@ -465,7 +472,7 @@ public sealed class PdfAppendService
         // Different PDFs can end at very different Y positions, so do not use a
         // fixed template coordinate here; derive it from the detected last row.
         var coverTop = (!layout.HasOriginalDataRows && layout.HasVisibleColumnHeader)
-            ? Math.Max(0, layout.HeaderTop + layout.HeaderHeight - 1.0)
+            ? Math.Max(0, layout.HeaderTop + layout.HeaderHeight + 0.4)
             : layout.FooterCoverTop;
         var coverHeight = Math.Max(0, layout.PageHeight - coverTop);
         gfx.DrawRectangle(whiteBrush, OuterLeft - 2.0, coverTop, OuterRight - OuterLeft + 4.0, coverHeight);
