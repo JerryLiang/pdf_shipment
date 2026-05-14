@@ -24,8 +24,13 @@ public sealed class PdfAppendService
         var analyzer = new PdfTableLayoutAnalyzer();
         var layout = analyzer.Analyze(originalPdfPath);
         // The parser can occasionally see hidden/cropped row-number text in browser PDFs.
-        // The authoritative signal for an empty source table is the parsed original row list.
-        layout.HasOriginalDataRows = originalRows.Count > 0;
+        // For clipped landscape header-only PDFs, that hidden text must not count as
+        // source data; the visible source is only the table header and Excel rows
+        // should start at 1.
+        var clippedLandscapeHeaderOnly = layout.IsLandscapeTable &&
+            layout.HasVisibleColumnHeader &&
+            layout.PageHeight < 100.0;
+        layout.HasOriginalDataRows = !clippedLandscapeHeaderOnly && originalRows.Count > 0;
         PdfFontResolver.EnsureRegistered();
 
         using var document = PdfReader.Open(originalPdfPath, PdfDocumentOpenMode.Modify);
@@ -36,8 +41,9 @@ public sealed class PdfAppendService
         // The layout analyzer reads visible row-number positions directly, so use
         // the greater of both sources to prevent appended rows from restarting at 1
         // or continuing from a too-small parsed subset.
-        var parsedMaxIndex = originalRows.Count > 0 ? originalRows.Max(r => r.Index) : 0;
-        var maxIndex = Math.Max(parsedMaxIndex, layout.MaxOriginalRowIndex);
+        var parsedMaxIndex = layout.HasOriginalDataRows && originalRows.Count > 0 ? originalRows.Max(r => r.Index) : 0;
+        var visibleMaxIndex = layout.HasOriginalDataRows ? layout.MaxOriginalRowIndex : 0;
+        var maxIndex = Math.Max(parsedMaxIndex, visibleMaxIndex);
         var numberedRows = rowsToAppend.Select((row, i) => CloneWithIndex(row, maxIndex + i + 1)).ToList();
         if (layout.IsLandscapeTable)
         {

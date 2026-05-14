@@ -116,10 +116,17 @@ public sealed class PdfTableLayoutAnalyzer
         // portrait. Treat only the true wide Carrier Central table as landscape.
         // Observed landscape exports are ~792pt wide; portrait exports are ~595pt.
         var isLandscapeTable = sawColumnHeader && pageForLayout.Width > 700.0 && pageForLayout.Width > pageForLayout.Height;
+        var clippedLandscapeHeaderOnly = isLandscapeTable && pageForLayout.Height < 100.0;
+        if (clippedLandscapeHeaderOnly)
+        {
+            pageDataLines.Clear();
+            lastDataLine = null;
+        }
+        var effectiveDataLineCount = clippedLandscapeHeaderOnly ? 0 : dataLines.Count;
         var rowHeight = isLandscapeTable ? 21.289 : EstimateRowHeight(pageDataLines);
-        var hasShipmentTable = dataLines.Count > 0 || sawColumnHeader;
+        var hasShipmentTable = effectiveDataLineCount > 0 || sawColumnHeader;
         var defaultFirstDataTop = isLandscapeTable
-            ? (dataLines.Count > 0 ? 27.75 : 56.52)
+            ? (effectiveDataLineCount > 0 ? 27.75 : 56.52)
             : sawColumnHeader
                 ? columnHeaderTop + 25.0
                 : hasShipmentTable
@@ -142,10 +149,10 @@ public sealed class PdfTableLayoutAnalyzer
             BottomMargin = isLandscapeTable ? 584.153 : Math.Min(DefaultBottomMargin, pageForLayout.Height - 20.0),
             HasShipmentTable = hasShipmentTable,
             HasShipmentInfoLabel = sawShipmentSectionLabel,
-            HasOriginalDataRows = dataLines.Count > 0,
+            HasOriginalDataRows = effectiveDataLineCount > 0,
             IsLandscapeTable = isLandscapeTable,
             HasVisibleColumnHeader = sawColumnHeader,
-            MaxOriginalRowIndex = dataLines.Count > 0 ? dataLines.Max(l => l.RowNumber) : 0
+            MaxOriginalRowIndex = effectiveDataLineCount > 0 ? dataLines.Max(l => l.RowNumber) : 0
         };
     }
 
